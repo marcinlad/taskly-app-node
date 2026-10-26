@@ -7,9 +7,6 @@
   "engines": {
     "node": ">=22.12"
   },
-  "bin": {
-    "test-agent": "src/cli.ts"
-  },
   "scripts": {
     "agent": "tsx src/cli.ts",
     "test": "vitest run",

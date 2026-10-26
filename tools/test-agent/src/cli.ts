@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
