@@ -9,9 +9,8 @@ import { runVitest, type TestRunResult } from './vitest.ts';
 export interface FileVerification {
   path: string;
   kept: boolean;
-  /** Why the file was reverted. */
   reason?: string;
-  /** Isolated runs that passed, out of `limits.verifyRepeats`; absent for helper files. */
+  /** Isolated runs that passed, out of `limits.verifyRepeats`. */
   passedRuns?: number;
 }
 

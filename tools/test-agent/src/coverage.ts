@@ -28,7 +28,6 @@ interface IstanbulFile {
   b: Record<string, number[]>;
 }
 
-/** Parses coverage-final.json into per-file metrics keyed by repository-relative path. */
 export function parseCoverage(report: Record<string, unknown>, repoRoot: string): Record<string, FileCoverage> {
   const result: Record<string, FileCoverage> = {};
   for (const [absolute, raw] of Object.entries(report)) {
@@ -108,7 +107,6 @@ export function collapseRanges(numbers: number[]): string[] {
   return ranges;
 }
 
-/** Sums per-file metrics, for a package-level total. */
 export function totals(files: FileCoverage[]): Pick<FileCoverage, 'lines' | 'branches' | 'functions' | 'statements'> {
   const sum = (key: 'lines' | 'branches' | 'functions' | 'statements') =>
     metric(files.reduce((acc, f) => acc + f[key].covered, 0), files.reduce((acc, f) => acc + f[key].total, 0));

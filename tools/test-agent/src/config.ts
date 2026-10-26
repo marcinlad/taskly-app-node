@@ -7,7 +7,6 @@ export interface PackageConfig {
   name: PackageName;
   /** Package directory, relative to the repository root. */
   dir: string;
-  /** Source files whose behavior unit tests should cover. */
   sourcePattern: RegExp;
   /**
    * Source files that are not worth unit testing. Mirrors `coverage.exclude` in the package's
@@ -19,7 +18,6 @@ export interface PackageConfig {
    * no fixtures, helpers or setup files, so one test file can never break another.
    */
   testFilePattern: RegExp;
-  /** Skills that describe this package's testing conventions. */
   skills: string[];
   /** Formatter applied to the agent's files before verification, as `npx` arguments. */
   format?: string[];
@@ -70,11 +68,9 @@ export interface Limits {
   maxTargets: number;
   /** API requests per package session. */
   maxIterations: number;
-  /** Wall-clock limit for one package session. */
   sessionTimeoutMs: number;
   /** Test or coverage runs the agent may start per session. */
   maxTestRuns: number;
-  /** Test files the agent may write per session. */
   maxWrites: number;
   maxReadBytes: number;
   maxWriteBytes: number;

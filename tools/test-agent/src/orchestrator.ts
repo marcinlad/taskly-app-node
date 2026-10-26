@@ -53,7 +53,6 @@ export interface RunResult {
   effort: string;
   plan: Plan;
   packages: PackageResult[];
-  /** Kept test files, ready to commit. */
   keptFiles: string[];
   guard: { checked: boolean; violations: string[] };
   usage: Usage;
@@ -68,7 +67,6 @@ export async function run(options: RunOptions): Promise<RunResult> {
   const git = await isGitRepository(repoRoot);
   const dirtyBefore = new Set(git ? await dirtyPaths(repoRoot) : []);
 
-  // Plan: which files, in which packages, need tests.
   const coverageBefore = new Map<PackageName, Record<string, FileCoverage>>();
   let plan: Plan;
   const diffs = new Map<string, string>();

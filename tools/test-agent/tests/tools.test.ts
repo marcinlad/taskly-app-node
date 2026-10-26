@@ -26,7 +26,6 @@ async function setup(mode: 'pr' | 'coverage' = 'coverage') {
   };
   const state = createSessionState();
   const tools = createTools(ctx, state);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const call = (name: string, input: unknown) => { const tool = tools.find((t) => t.name === name) as any; return tool.run(tool.parse ? tool.parse(input) : input); };
   return { repoRoot, ctx, state, tools, call, sandbox };
 }

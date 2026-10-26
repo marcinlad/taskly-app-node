@@ -5,7 +5,6 @@ import { PACKAGES, type PackageConfig, type PackageName } from './config.ts';
 /** Directories never shown to the agent: dependencies, VCS data, build and coverage output. */
 const HIDDEN_SEGMENTS = new Set(['node_modules', '.git', 'dist', 'coverage', 'storybook-static', 'generated', '.vite']);
 
-/** Files that may hold credentials. */
 const SECRET_FILE = /(^|\/)(\.env(\..*)?|\.npmrc|.*\.(pem|key|p12|pfx)|id_(rsa|ed25519).*)$/i;
 
 /**

@@ -108,7 +108,6 @@ function agentSection(result: RunResult): string[] {
   return lines;
 }
 
-/** One collapsed block holding every non-empty section. */
 function details(sections: string[][]): string[] {
   const content = sections.filter((s) => s.length).flatMap((s) => [...s, '']);
   return content.length ? ['<details><summary>Details</summary>', '', ...content, '</details>', ''] : [];

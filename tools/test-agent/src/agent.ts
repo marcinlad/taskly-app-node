@@ -36,7 +36,6 @@ export function addUsage(total: Usage, usage: Anthropic.Beta.BetaUsage): void {
   total.cacheWriteTokens += usage.cache_creation_input_tokens ?? 0;
 }
 
-/** One agent session: a single package, its targets, and a Tool Runner loop over the session's tools. */
 export async function runSession(
   client: Anthropic,
   ctx: SessionContext,

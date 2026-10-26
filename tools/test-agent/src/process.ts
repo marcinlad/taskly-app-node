@@ -54,7 +54,6 @@ export function runCommand(command: string, args: string[], options: CommandOpti
 }
 
 export interface Sandbox {
-  /** Runs `npx <args>` in a package directory. */
   npx(packageDir: string, args: string[], extraEnv?: Record<string, string>): Promise<CommandResult>;
 }
 
@@ -98,6 +97,5 @@ export function truncate(text: string, maxChars: number): string {
 
 /** Strips ANSI escape codes that some tools print even with colors off. */
 export function stripAnsi(text: string): string {
-  // eslint-disable-next-line no-control-regex
   return text.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
 }

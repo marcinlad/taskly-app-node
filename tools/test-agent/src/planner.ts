@@ -8,10 +8,9 @@ export interface Target {
   /** Source file to cover, repository-relative. */
   path: string;
   package: PackageName;
-  /** Why the planner picked it. */
   reason: string;
   changeStatus?: ChangeStatus;
-  /** Existing test files that import or mock it. */
+  /** Existing test files that import it without mocking it. */
   existingTests: string[];
   baselineCoverage?: FileCoverage;
 }
@@ -37,14 +36,12 @@ export function targetsByPackage(plan: Plan): Map<PackageName, Target[]> {
   return groups;
 }
 
-/** Explains why a file in a package is not a unit-test target. */
 export function skipReason(file: string, pkg: PackageConfig): string | null {
   if (isTestableSource(file, pkg)) return null;
   if (!pkg.sourcePattern.test(file)) return 'not application source code (config, styles, docs or assets)';
   return 'excluded from unit-test coverage by the package config (types, stories, barrels, design system or bootstrap code)';
 }
 
-/** Picks the changed source files of a pull request that unit tests should cover. */
 export async function planFromChanges(repoRoot: string, changes: ChangedFile[], maxTargetsPerPackage: number): Promise<Plan> {
   const plan: Plan = { mode: 'pr', targets: [], skipped: [], changedTests: [] };
   const testFiles = await allTestFiles(repoRoot);
@@ -84,11 +81,9 @@ export interface CoveragePlanOptions {
   /** A file is a target when its line or branch coverage is below this percentage. */
   threshold: number;
   maxTargetsPerPackage: number;
-  /** Restrict the plan to these files. */
   only?: string[];
 }
 
-/** Picks the source files with the least coverage. */
 export async function planFromCoverage(
   repoRoot: string,
   coverage: Map<PackageName, Record<string, FileCoverage>>,
