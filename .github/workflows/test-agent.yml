@@ -137,7 +137,7 @@ jobs:
 
       # No code from the pull request runs in this job; it only applies a checked patch.
       - name: Check out the pull request branch
-        if: needs.agent.result == 'success' && needs.agent.outputs.kept != '0' && vars.TEST_AGENT_AUTOCOMMIT != 'false'
+        if: needs.agent.result == 'success' && needs.agent.outputs.kept != '0'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.ref }}
@@ -145,7 +145,7 @@ jobs:
 
       - name: Validate and commit the patch
         id: commit
-        if: needs.agent.result == 'success' && needs.agent.outputs.kept != '0' && vars.TEST_AGENT_AUTOCOMMIT != 'false'
+        if: needs.agent.result == 'success' && needs.agent.outputs.kept != '0'
         working-directory: pr
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
@@ -183,7 +183,6 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
           AGENT_RESULT: ${{ needs.agent.result }}
           KEPT: ${{ needs.agent.outputs.kept }}
-          AUTOCOMMIT: ${{ vars.TEST_AGENT_AUTOCOMMIT }}
           COMMIT_STATUS: ${{ steps.commit.outputs.status }}
           COMMIT_SHA: ${{ steps.commit.outputs.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -203,8 +202,6 @@ jobs:
               echo '⚠️ The agent run failed; nothing was committed. See the run log.'
             elif [ "${KEPT:-0}" = 0 ]; then
               echo 'No test files to commit.'
-            elif [ "$AUTOCOMMIT" = false ]; then
-              echo 'Auto-commit is off: download `tests.patch` from the run artifacts and apply it with `git apply`.'
             fi
             echo "[Run log, transcript and patch]($RUN_URL)"
           } >> "$body"
