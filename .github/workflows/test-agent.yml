@@ -48,13 +48,13 @@ jobs:
         working-directory: pr/tools/test-agent
         run: npm ci --no-audit --no-fund
 
-      # Install scripts run without secrets, and nothing they start survives into the agent step.
+      # Only the package directory is mounted: install scripts get no secrets and can't touch .git or the agent.
       - name: Install pull request dependencies in the sandbox
         working-directory: pr
         run: |
           for pkg in backend frontend; do
             docker run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp --env npm_config_cache=/tmp/.npm \
-              --volume "$PWD:/repo" --workdir "/repo/$pkg" "$SANDBOX_IMAGE" npm ci --no-audit --no-fund
+              --volume "$PWD/$pkg:/repo/$pkg" --workdir "/repo/$pkg" "$SANDBOX_IMAGE" npm ci --no-audit --no-fund
           done
 
       - name: Run the agent

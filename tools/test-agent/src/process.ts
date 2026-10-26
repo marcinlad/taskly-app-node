@@ -53,7 +53,8 @@ export interface Sandbox {
   npx(packageDir: string, args: string[], extraEnv?: Record<string, string>): Promise<CommandResult>;
 }
 
-// docker: a throwaway container without network, so pull request code can't reach the agent or the internet.
+// docker: a throwaway container without network that mounts only the package directory, so pull request code
+// can't reach the internet, the agent's process, or files the host runs later (.git config, the agent itself).
 const COMMAND_TIMEOUT_MS = 5 * 60_000;
 
 export function createSandbox(repoRoot: string, mode: SandboxMode, image: string): Sandbox {
@@ -73,7 +74,7 @@ export function createSandbox(repoRoot: string, mode: SandboxMode, image: string
           '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
           ...user, '--env', 'HOME=/tmp',
           ...envArgs,
-          '--volume', `${repoRoot}:/repo`, '--workdir', `/repo/${packageDir}`,
+          '--volume', `${path.join(repoRoot, packageDir)}:/repo/${packageDir}`, '--workdir', `/repo/${packageDir}`,
           image, 'npx', '--no-install', ...args,
         ],
         { cwd: repoRoot, timeoutMs: COMMAND_TIMEOUT_MS },
