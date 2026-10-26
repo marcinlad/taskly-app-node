@@ -149,9 +149,11 @@ jobs:
         working-directory: pr
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
           patch="$GITHUB_WORKSPACE/out/tests.patch"
+          fail() { echo "status=$1" >> "$GITHUB_OUTPUT"; echo "::error::$2"; exit 1; }
           # Tests written for an older head would land on code they were not verified against.
           if [ "$(git rev-parse HEAD)" != "$HEAD_SHA" ]; then
             echo "status=stale" >> "$GITHUB_OUTPUT"
@@ -161,11 +163,10 @@ jobs:
           allowed='^(backend/tests/[A-Za-z0-9_./-]+\.test\.ts|frontend/src/[A-Za-z0-9_./-]+\.test\.tsx?)$'
           git apply --numstat "$patch" | cut -f3 | while read -r file; do
             if [[ ! "$file" =~ $allowed || "$file" == *..* ]]; then
-              echo "::error::The patch touches a file that is not a test file: $file"
-              exit 1
+              fail rejected "The patch touches a file that is not a test file: $file"
             fi
           done
-          git apply --check "$patch"
+          git apply --check "$patch" || fail conflict 'The patch does not apply to the branch.'
           git apply "$patch"
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
@@ -173,17 +174,26 @@ jobs:
           git commit --quiet -m 'test: add unit tests from the test agent [test-agent]' \
             -m "Verified by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           # A push with GITHUB_TOKEN does not trigger workflows, so this cannot loop.
-          git push --quiet origin HEAD
+          if ! git push --quiet origin HEAD; then
+            git fetch --quiet origin "$BRANCH"
+            if [ "$(git rev-parse FETCH_HEAD)" != "$HEAD_SHA" ]; then
+              echo "status=stale" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            fail push-failed 'Pushing to the pull request branch failed.'
+          fi
           echo "status=committed" >> "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Comment on the pull request
+        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
           AGENT_RESULT: ${{ needs.agent.result }}
           KEPT: ${{ needs.agent.outputs.kept }}
           COMMIT_STATUS: ${{ steps.commit.outputs.status }}
+          COMMIT_OUTCOME: ${{ steps.commit.outcome }}
           COMMIT_SHA: ${{ steps.commit.outputs.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
@@ -194,10 +204,16 @@ jobs:
           {
             echo
             echo '---'
-            if [ "${COMMIT_STATUS:-}" = committed ]; then
-              echo "Verified tests were committed to this branch in $COMMIT_SHA."
-            elif [ "${COMMIT_STATUS:-}" = stale ]; then
-              echo 'The branch changed while the agent ran, so nothing was committed; the run for the new head will cover it.'
+            if [ -n "${COMMIT_STATUS:-}" ]; then
+              case "$COMMIT_STATUS" in
+                committed) echo "Verified tests were committed to this branch in $COMMIT_SHA." ;;
+                stale) echo 'The branch changed while the agent ran, so nothing was committed; the run for the new head will cover it.' ;;
+                rejected) echo '🚫 The patch was rejected because it touches a file outside the allowed test paths, so nothing was committed. This should never happen and may mean a prompt injection or a bug in the agent; the file is named in the run log.' ;;
+                conflict) echo '❌ The patch does not apply to this branch, so nothing was committed. The patch is in the run artifacts.' ;;
+                push-failed) echo '❌ Pushing to this branch failed (for example, branch protection), so nothing was committed. Apply `tests.patch` from the run artifacts with `git apply`.' ;;
+              esac
+            elif [ "${COMMIT_OUTCOME:-}" = failure ]; then
+              echo '❌ Committing the tests failed, so nothing was committed. See the run log.'
             elif [ "$AGENT_RESULT" != success ]; then
               echo '⚠️ The agent run failed; nothing was committed. See the run log.'
             elif [ "${KEPT:-0}" = 0 ]; then
