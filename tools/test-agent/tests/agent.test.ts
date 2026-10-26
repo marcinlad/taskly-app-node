@@ -1,7 +1,7 @@
 import type Anthropic from '@anthropic-ai/sdk';
 import { expect, it, vi } from 'vitest';
-import { runSession } from '../src/agent.ts';
-import { DEFAULT_LIMITS, PACKAGES } from '../src/config.ts';
+import { MAX_TURNS, runSession } from '../src/agent.ts';
+import { PACKAGES } from '../src/config.ts';
 import { REPORT_REMINDER } from '../src/prompt.ts';
 import type { SessionContext } from '../src/tools.ts';
 import { tempRepo } from './helpers.ts';
@@ -45,7 +45,6 @@ async function context(): Promise<SessionContext> {
     diffs: new Map(),
     skills: new Map([['backend-vitest', { name: 'backend-vitest', description: 'Backend conventions', body: 'Body' }]]),
     sandbox: { npx: vi.fn() },
-    limits: DEFAULT_LIMITS,
   };
 }
 
@@ -69,7 +68,7 @@ it('runs the tool loop to an accepted report and totals usage', async () => {
   expect(fake.pushed).toEqual([]);
   const params = fake.params();
   expect(params).toMatchObject({
-    model: 'claude-opus-5-5', stream: true, thread: false, max_iterations: DEFAULT_LIMITS.maxIterations,
+    model: 'claude-opus-5-5', stream: true, thread: false, max_iterations: MAX_TURNS,
     output_config: { effort: 'high' }, fallbacks: 'default', cache_control: { type: 'ephemeral' },
   });
   expect(params.system).toContain('- backend-vitest: Backend conventions');

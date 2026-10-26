@@ -102,7 +102,7 @@ Coverage over all coverage-mode runs:
 - Forks are not supported.
 - At most 8 files per package per run; the rest of a large pull request is listed as not targeted.
 - Verification proves the tests pass, type-check and are stable. It does not prove they would catch a regression, so a weak but passing test can get through.
-- Anyone who can push a branch can also change the workflow in their pull request. That is inherent to the `pull_request` trigger and why forks are excluded.
+- Running the agent from the base branch guards against accidental changes to the agent, not against a malicious collaborator: anyone who can push a branch can also edit the workflow file in their pull request. That is inherent to the `pull_request` trigger and why forks are excluded.
 - The coverage mode runs locally, not in a workflow.
 - No hard cost cap per run beyond turn, test-run and time limits.
 

@@ -1,9 +1,9 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import { DEFAULT_LIMITS, PACKAGES } from '../src/config.ts';
+import { PACKAGES } from '../src/config.ts';
 import type { Sandbox } from '../src/process.ts';
-import { countTestCases, createSessionState, createTools, TRIAGE_HINT, type SessionContext } from '../src/tools.ts';
+import { countTestCases, createSessionState, createTools, MAX_TEST_RUNS, MAX_WRITE_BYTES, MAX_WRITES, TRIAGE_HINT, type SessionContext } from '../src/tools.ts';
 import { tempRepo } from './helpers.ts';
 
 const existingTest = "import { it } from 'vitest';\nit('one', () => {});\nit.each([1, 2])('two %s', () => {});\n";
@@ -21,7 +21,6 @@ async function setup(mode: 'pr' | 'coverage' = 'coverage') {
     targets: [{ path: 'backend/src/factory.ts', package: 'backend', reason: 'test', existingTests: [] }],
     diffs: new Map([['backend/src/factory.ts', '+export function createApp() {}']]),
     skills: new Map([['backend-vitest', { name: 'backend-vitest', description: 'Backend conventions', body: 'Use supertest.' }]]),
-    limits: { ...DEFAULT_LIMITS, maxWrites: 2, maxTestRuns: 1 },
     onEvent: vi.fn(),
   };
   const state = createSessionState();
@@ -96,10 +95,10 @@ describe('write_test_file', () => {
 
   it('enforces the write limits', async () => {
     const { call } = await setup();
-    await expect(call('write_test_file', { path: 'backend/tests/a.test.ts', content: 'x'.repeat(DEFAULT_LIMITS.maxWriteBytes + 1) })).rejects.toThrow('exceeds');
-    await call('write_test_file', { path: 'backend/tests/a.test.ts', content: '' });
-    await call('write_test_file', { path: 'backend/tests/b.test.ts', content: '' });
-    await expect(call('write_test_file', { path: 'backend/tests/c.test.ts', content: '' })).rejects.toThrow('limit of 2 written files');
+    await expect(call('write_test_file', { path: 'backend/tests/a.test.ts', content: 'x'.repeat(MAX_WRITE_BYTES + 1) })).rejects.toThrow('exceeds');
+    for (let i = 0; i < MAX_WRITES; i++) await call('write_test_file', { path: `backend/tests/f${i}.test.ts`, content: '' });
+    await call('write_test_file', { path: 'backend/tests/f0.test.ts', content: '' });
+    await expect(call('write_test_file', { path: 'backend/tests/extra.test.ts', content: '' })).rejects.toThrow(`limit of ${MAX_WRITES} written files`);
   });
 });
 
@@ -112,7 +111,8 @@ describe('run_tests', () => {
     expect(output).toContain('ERROR: Vitest did not produce a report');
     expect(output.endsWith(TRIAGE_HINT)).toBe(true);
     expect(vi.mocked(sandbox.npx).mock.calls[0][1]).toEqual(expect.arrayContaining(['vitest', 'run', 'tests/router.test.ts', '--reporter=json']));
-    await expect(call('run_tests', { files: ['backend/tests/router.test.ts'] })).rejects.toThrow('Test run limit (1) reached');
+    for (let i = 1; i < MAX_TEST_RUNS; i++) await call('run_tests', { files: ['backend/tests/router.test.ts'] });
+    await expect(call('run_tests', { files: ['backend/tests/router.test.ts'] })).rejects.toThrow(`Test run limit (${MAX_TEST_RUNS}) reached`);
   });
 });
 

@@ -21,7 +21,7 @@ Output goes to `test-agent-output/`: `report.md` (PR comment), `report.json`, `t
 
 | Path | Role |
 |---|---|
-| `src/orchestrator.ts` | Deterministic pipeline: plan → agent session per package → verification → guard |
+| `src/orchestrator.ts` | Deterministic pipeline: plan → agent session per package → verification → report |
 | `src/planner.ts` | Picks target files from a git diff or a coverage report, explains every skipped file |
 | `src/agent.ts` | Tool Runner loop: streaming, prompt caching, refusal fallback, report reminder, limits |
 | `src/tools.ts` | The agent's only capabilities, each with guards (read-only repo, writes limited to `*.test.*` files, clean-env test runs) |

@@ -56,16 +56,3 @@ export async function fileDiff(repoRoot: string, base: string, head: string, fil
   assertRef(head);
   return git(repoRoot, ['diff', '--unified=5', '--no-color', `${base}...${head}`, '--', file]);
 }
-
-export async function dirtyPaths(repoRoot: string): Promise<string[]> {
-  const output = await git(repoRoot, ['status', '--porcelain=v1', '-z', '--untracked-files=all']);
-  const fields = output.split('\0').filter(Boolean);
-  const paths: string[] = [];
-  for (let i = 0; i < fields.length; i++) {
-    const entry = fields[i];
-    paths.push(entry.slice(3));
-    // A rename lists the original path as the next field.
-    if (entry[0] === 'R' || entry[0] === 'C') i++;
-  }
-  return paths;
-}

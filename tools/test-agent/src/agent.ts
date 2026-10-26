@@ -3,6 +3,9 @@ import { SHARED_SKILLS, type ModelSettings } from './config.ts';
 import { REPORT_REMINDER, systemPrompt, taskMessage } from './prompt.ts';
 import { createSessionState, createTools, type AgentReport, type SessionContext, type SessionState, type ToolEvent } from './tools.ts';
 
+export const MAX_TURNS = 60;
+const SESSION_TIMEOUT_MS = 20 * 60_000;
+
 export interface Usage {
   inputTokens: number;
   outputTokens: number;
@@ -61,7 +64,7 @@ export async function runSession(
     {
       model: settings.model,
       max_tokens: settings.maxTokens,
-      max_iterations: ctx.limits.maxIterations,
+      max_iterations: MAX_TURNS,
       stream: true,
       // Send the full history each turn (no server-held thread) and let automatic caching reuse it.
       thread: false,
@@ -75,7 +78,7 @@ export async function runSession(
       tools,
       messages: [{ role: 'user', content: taskMessage(ctx.mode, ctx.targets, changedTests) }],
     },
-    { signal: AbortSignal.timeout(ctx.limits.sessionTimeoutMs) },
+    { signal: AbortSignal.timeout(SESSION_TIMEOUT_MS) },
   );
 
   let iterations = 0;
@@ -104,11 +107,11 @@ export async function runSession(
         runner.pushMessages({ role: 'assistant', content: message.content }, { role: 'user', content: REPORT_REMINDER });
       }
     }
-    if (!error && iterations >= ctx.limits.maxIterations && !state.report) {
-      error = `Stopped at the limit of ${ctx.limits.maxIterations} turns.`;
+    if (!error && iterations >= MAX_TURNS && !state.report) {
+      error = `Stopped at the limit of ${MAX_TURNS} turns.`;
     }
   } catch (caught) {
-    error = describeError(caught, ctx.limits.sessionTimeoutMs);
+    error = describeError(caught, SESSION_TIMEOUT_MS);
   }
   if (!error && !state.report) error = 'The agent finished without an accepted report.';
   return { package: ctx.pkg.name, report: state.report, state, transcript, usage, iterations, error };

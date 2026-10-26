@@ -1,10 +1,12 @@
 import { rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import type { Limits, PackageConfig } from './config.ts';
+import type { PackageConfig } from './config.ts';
 import type { FileCoverage } from './coverage.ts';
 import { stripAnsi, type Sandbox } from './process.ts';
 import type { WriteRecord } from './tools.ts';
 import { runVitest, type TestRunResult } from './vitest.ts';
+
+export const VERIFY_REPEATS = 3;
 
 export interface FileVerification {
   path: string;
@@ -26,7 +28,6 @@ export async function verifyPackage(
   pkg: PackageConfig,
   sandbox: Sandbox,
   writes: Map<string, WriteRecord>,
-  limits: Limits,
   log: (line: string) => void = () => {},
 ): Promise<PackageVerification> {
   const files = [...writes.keys()];
@@ -47,18 +48,18 @@ export async function verifyPackage(
   for (const file of files) {
     let passedRuns = 0;
     let failure: string | undefined;
-    for (let run = 0; run < limits.verifyRepeats && !failure; run++) {
+    for (let run = 0; run < VERIFY_REPEATS && !failure; run++) {
       const result = await runVitest(repoRoot, pkg, sandbox, { files: [file] });
       if (result.ok) passedRuns += 1;
       else failure = firstFailure(result, run);
     }
     results.set(file, { path: file, kept: true, passedRuns });
     if (failure) await reject(file, failure);
-    else log(`  verify ${file}: ${passedRuns}/${limits.verifyRepeats} runs passed`);
+    else log(`  verify ${file}: ${passedRuns}/${VERIFY_REPEATS} runs passed`);
   }
 
   // 2. Type-check: Vitest strips types without checking them.
-  const typecheck = await runTypecheck(repoRoot, pkg, sandbox, limits);
+  const typecheck = await runTypecheck(repoRoot, pkg, sandbox);
   const agentErrors = typecheck.errors.filter((line) => writes.has(line.split('(')[0]));
   for (const file of files.filter(isKept)) {
     const errors = agentErrors.filter((line) => line.startsWith(`${file}(`));
@@ -101,9 +102,9 @@ export async function revert(repoRoot: string, file: string, record: WriteRecord
   else await writeFile(absolute, record.original, 'utf8');
 }
 
-export async function runTypecheck(repoRoot: string, pkg: PackageConfig, sandbox: Sandbox, limits: Limits): Promise<{ errors: string[] }> {
+export async function runTypecheck(repoRoot: string, pkg: PackageConfig, sandbox: Sandbox): Promise<{ errors: string[] }> {
   const result = await sandbox.npx(pkg.dir, ['tsc', '--noEmit', '--pretty', 'false']);
-  if (result.timedOut) return { errors: [`${pkg.dir}: typecheck timed out after ${limits.commandTimeoutMs} ms`] };
+  if (result.timedOut) return { errors: [`${pkg.dir}: typecheck timed out`] };
   return { errors: parseTscOutput(stripAnsi(result.stdout), pkg.dir) };
 }
 

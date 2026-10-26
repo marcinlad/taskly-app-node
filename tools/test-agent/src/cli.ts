@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { AGENT_ROOT, DEFAULT_LIMITS, modelSettingsFromEnv, sandboxFromEnv, type PackageName } from './config.ts';
+import { AGENT_ROOT, DEFAULT_MAX_TARGETS, modelSettingsFromEnv, sandboxFromEnv, type PackageName } from './config.ts';
 import { run } from './orchestrator.ts';
 import { renderMarkdown } from './report.ts';
 
@@ -16,7 +16,7 @@ Options:
   --package <name>    backend or frontend; repeatable (default both).
   --file <path>       Coverage mode: only this source file; repeatable.
   --threshold <pct>   Coverage mode: target files below this coverage (default 80).
-  --max-targets <n>   Files per package per run (default ${DEFAULT_LIMITS.maxTargets}).
+  --max-targets <n>   Files per package per run (default ${DEFAULT_MAX_TARGETS}).
   --repo <dir>        Repository to work on (default: the one containing this agent). CI points this at
                       the pull request checkout while the agent itself runs from the base branch.
   --out <dir>         Where to write report.json, report.md and transcript.jsonl (default ./test-agent-output).
@@ -47,8 +47,7 @@ async function main(): Promise<number> {
   }
   const packages = (values.package ?? ['backend', 'frontend']) as PackageName[];
   if (packages.some((name) => name !== 'backend' && name !== 'frontend')) throw new Error(`Unknown package in ${packages.join(', ')}`);
-  const limits = { ...DEFAULT_LIMITS };
-  if (values['max-targets']) limits.maxTargets = positiveInt(values['max-targets'], '--max-targets');
+  const maxTargets = values['max-targets'] ? positiveInt(values['max-targets'], '--max-targets') : DEFAULT_MAX_TARGETS;
 
   const repoRoot = path.resolve(values.repo ?? path.join(AGENT_ROOT, '..', '..'));
   const outDir = path.resolve(values.out);
@@ -61,7 +60,7 @@ async function main(): Promise<number> {
     threshold: Number(values.threshold),
     packages,
     dryRun: values['dry-run'],
-    limits,
+    maxTargets,
     model: modelSettingsFromEnv(),
     sandbox: sandboxFromEnv(),
     log: (line) => console.error(line),
@@ -74,12 +73,6 @@ async function main(): Promise<number> {
   await writeFile(path.join(outDir, 'transcript.jsonl'), transcript.map((event) => JSON.stringify(event)).join('\n'));
   await writeFile(path.join(outDir, 'kept-files.txt'), result.keptFiles.join('\n'));
   console.error(`\nKept ${result.keptFiles.length} test file(s). Report: ${path.relative(process.cwd(), path.join(outDir, 'report.md'))}`);
-
-  // 3: the working tree has changes the agent should not have caused; CI must not commit anything.
-  if (result.guard.violations.length) {
-    console.error(`Guard violation: unexpected changes in ${result.guard.violations.join(', ')}`);
-    return 3;
-  }
   return 0;
 }
 

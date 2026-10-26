@@ -30,7 +30,7 @@ jobs:
     outputs:
       kept: ${{ steps.patch.outputs.kept }}
     steps:
-      # From the base branch, so a pull request cannot change the agent that reviews it.
+      # The reviewed agent from the base branch, not the pull request's copy; a malicious author could still edit this workflow.
       - name: Check out the agent (base branch, trusted)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

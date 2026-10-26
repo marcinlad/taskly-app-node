@@ -2,7 +2,7 @@ import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { betaZodTool } from '@anthropic-ai/sdk/helpers/beta/zod';
 import { z } from 'zod';
-import type { Limits, PackageConfig } from './config.ts';
+import type { PackageConfig } from './config.ts';
 import { formatCoverage } from './coverage.ts';
 import { walkFiles } from './files.ts';
 import { isReadable, isTestFile, normalizeRepoPath, resolveInsideRoot } from './paths.ts';
@@ -27,7 +27,6 @@ export interface SessionContext {
   diffs: Map<string, string>;
   skills: Map<string, Skill>;
   sandbox: Sandbox;
-  limits: Limits;
   onEvent?: (event: ToolEvent) => void;
 }
 
@@ -60,6 +59,12 @@ export interface SessionState {
   report: AgentReport | null;
 }
 
+export const MAX_TEST_RUNS = 30;
+export const MAX_WRITES = 20;
+export const MAX_WRITE_BYTES = 100_000;
+const MAX_READ_BYTES = 200_000;
+const MAX_OUTPUT_CHARS = 12_000;
+
 export const TRIAGE_HINT =
   "Not sure whether the test or the code under test is wrong? Load the 'failure-triage' skill before changing assertions.";
 
@@ -75,7 +80,7 @@ export function createSessionState(): SessionState {
 }
 
 export function createTools(ctx: SessionContext, state: SessionState) {
-  const { repoRoot, pkg, limits } = ctx;
+  const { repoRoot, pkg } = ctx;
 
   function define<Schema extends z.ZodType>(spec: {
     name: string;
@@ -114,8 +119,8 @@ export function createTools(ctx: SessionContext, state: SessionState) {
   }
 
   async function runTestsCounted(files: string[], coverage: boolean): Promise<TestRunResult> {
-    if (state.testRuns >= limits.maxTestRuns) {
-      throw new Error(`Test run limit (${limits.maxTestRuns}) reached. Stop iterating and call submit_report with the current status.`);
+    if (state.testRuns >= MAX_TEST_RUNS) {
+      throw new Error(`Test run limit (${MAX_TEST_RUNS}) reached. Stop iterating and call submit_report with the current status.`);
     }
     state.testRuns += 1;
     const result = await runVitest(repoRoot, pkg, ctx.sandbox, { files, coverage });
@@ -148,7 +153,7 @@ export function createTools(ctx: SessionContext, state: SessionState) {
       const absolute = await resolveInsideRoot(repoRoot, rel);
       const info = await stat(absolute).catch(() => null);
       if (!info?.isFile()) throw new Error(`No such file: ${rel}`);
-      if (info.size > limits.maxReadBytes) throw new Error(`${rel} is too large (${info.size} bytes).`);
+      if (info.size > MAX_READ_BYTES) throw new Error(`${rel} is too large (${info.size} bytes).`);
       const lines = (await readFile(absolute, 'utf8')).split('\n');
       const start = Math.max(1, start_line ?? 1);
       const end = Math.min(lines.length, end_line ?? lines.length);
@@ -171,7 +176,7 @@ export function createTools(ctx: SessionContext, state: SessionState) {
         if (!SEARCHABLE.test(file)) continue;
         const absolute = path.join(repoRoot, file);
         const info = await stat(absolute);
-        if (info.size > limits.maxReadBytes) continue;
+        if (info.size > MAX_READ_BYTES) continue;
         const lines = (await readFile(absolute, 'utf8')).split('\n');
         lines.forEach((line, i) => {
           if (matches.length < 60 && line.includes(query)) matches.push(`${file}:${i + 1}: ${line.trim().slice(0, 200)}`);
@@ -190,7 +195,7 @@ export function createTools(ctx: SessionContext, state: SessionState) {
       const rel = readablePath(file);
       const diff = ctx.diffs.get(rel);
       if (diff === undefined) return `${rel} is not changed in this pull request.`;
-      return truncate(diff, limits.maxToolOutputChars);
+      return truncate(diff, MAX_OUTPUT_CHARS);
     },
   });
 
@@ -222,9 +227,9 @@ export function createTools(ctx: SessionContext, state: SessionState) {
       if (rel === null || !isTestFile(rel, pkg)) {
         throw new Error(`Refused: "${file}" is not a test file of the ${pkg.name} package. Source code, fixtures, configs and other packages are read-only. Allowed pattern: ${pkg.testFilePattern.source}`);
       }
-      if (Buffer.byteLength(content) > limits.maxWriteBytes) throw new Error(`Refused: content exceeds ${limits.maxWriteBytes} bytes. Split the tests into smaller files.`);
+      if (Buffer.byteLength(content) > MAX_WRITE_BYTES) throw new Error(`Refused: content exceeds ${MAX_WRITE_BYTES} bytes. Split the tests into smaller files.`);
       const record = state.writes.get(rel);
-      if (!record && state.writes.size >= limits.maxWrites) throw new Error(`Refused: the limit of ${limits.maxWrites} written files is reached.`);
+      if (!record && state.writes.size >= MAX_WRITES) throw new Error(`Refused: the limit of ${MAX_WRITES} written files is reached.`);
       const absolute = await resolveInsideRoot(repoRoot, rel);
       const existing = await readFile(absolute, 'utf8').catch(() => null);
       const original = record ? record.original : existing;
@@ -243,7 +248,7 @@ export function createTools(ctx: SessionContext, state: SessionState) {
 
   const runTests = define({
     name: 'run_tests',
-    description: `Run specific test files of the ${pkg.name} package with Vitest and get pass/fail details. Limited to ${limits.maxTestRuns} runs per session (shared with get_coverage).`,
+    description: `Run specific test files of the ${pkg.name} package with Vitest and get pass/fail details. Limited to ${MAX_TEST_RUNS} runs per session (shared with get_coverage).`,
     inputSchema: z.object({ files: z.array(z.string()).min(1).describe('Test files relative to the repository root.') }),
     run: async ({ files }) => {
       const rels = files.map((file) => {
@@ -252,7 +257,7 @@ export function createTools(ctx: SessionContext, state: SessionState) {
         return rel;
       });
       const result = await runTestsCounted(rels, false);
-      const output = formatTestRun(result, limits.maxToolOutputChars);
+      const output = formatTestRun(result, MAX_OUTPUT_CHARS);
       // Skills are loaded up front; this points to the triage skill at the moment it is needed.
       return result.ok || state.skillsUsed.includes('failure-triage') ? output : `${output}\n\n${TRIAGE_HINT}`;
     },
@@ -270,7 +275,7 @@ export function createTools(ctx: SessionContext, state: SessionState) {
         return c ? `## ${rel}\n${formatCoverage(c)}` : `## ${rel}\nNo coverage data (not a covered source file of this package).`;
       });
       const status = result.ok ? `Suite passed (${result.passed} tests).` : formatTestRun(result, 4_000);
-      return truncate(`${status}\n\n${sections.join('\n\n')}`, limits.maxToolOutputChars);
+      return truncate(`${status}\n\n${sections.join('\n\n')}`, MAX_OUTPUT_CHARS);
     },
   });
 

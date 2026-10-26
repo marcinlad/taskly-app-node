@@ -1,7 +1,7 @@
 import { writeFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { expect, it } from 'vitest';
-import { changedFiles, dirtyPaths, fileDiff, isGitRepository, parseNameStatus } from '../src/git.ts';
+import { changedFiles, fileDiff, isGitRepository, parseNameStatus } from '../src/git.ts';
 import { runCommand } from '../src/process.ts';
 import { tempRepo } from './helpers.ts';
 
@@ -20,7 +20,7 @@ it('parses name-status output with renames', () => {
   ]);
 });
 
-it('lists pull request changes against the merge base and reports dirty files', async () => {
+it('lists pull request changes against the merge base', async () => {
   const root = await tempRepo({ 'backend/src/a.ts': 'export const a = 1;\n', 'backend/src/b.ts': 'export const b = 1;\n' });
   await git(root, 'init', '-q', '-b', 'main');
   await git(root, 'add', '.');
@@ -40,9 +40,6 @@ it('lists pull request changes against the merge base and reports dirty files', 
     { path: 'backend/src/c.ts', status: 'added' },
   ]);
   expect(await fileDiff(root, base, 'HEAD', 'backend/src/a.ts')).toContain('+export const a = 2;');
-  expect(await dirtyPaths(root)).toEqual([]);
-  await writeFile(path.join(root, 'backend/new.test.ts'), '');
-  expect(await dirtyPaths(root)).toEqual(['backend/new.test.ts']);
 });
 
 it('rejects refs that could be read as options', async () => {

@@ -54,11 +54,13 @@ export interface Sandbox {
 }
 
 // docker: a throwaway container without network, so pull request code can't reach the agent or the internet.
-export function createSandbox(repoRoot: string, mode: SandboxMode, image: string, timeoutMs: number): Sandbox {
+const COMMAND_TIMEOUT_MS = 5 * 60_000;
+
+export function createSandbox(repoRoot: string, mode: SandboxMode, image: string): Sandbox {
   return {
     async npx(packageDir, args, extraEnv = {}) {
       const cwd = path.join(repoRoot, packageDir);
-      if (mode === 'local') return runCommand('npx', ['--no-install', ...args], { cwd, timeoutMs, extraEnv });
+      if (mode === 'local') return runCommand('npx', ['--no-install', ...args], { cwd, timeoutMs: COMMAND_TIMEOUT_MS, extraEnv });
       const user = typeof process.getuid === 'function' ? [`--user`, `${process.getuid()}:${process.getgid?.()}`] : [];
       const envArgs = Object.entries(cleanEnv(extraEnv))
         .filter(([name]) => !['PATH', 'HOME', 'TMPDIR'].includes(name))
@@ -74,7 +76,7 @@ export function createSandbox(repoRoot: string, mode: SandboxMode, image: string
           '--volume', `${repoRoot}:/repo`, '--workdir', `/repo/${packageDir}`,
           image, 'npx', '--no-install', ...args,
         ],
-        { cwd: repoRoot, timeoutMs },
+        { cwd: repoRoot, timeoutMs: COMMAND_TIMEOUT_MS },
       );
     },
   };

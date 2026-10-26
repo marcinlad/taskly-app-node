@@ -18,9 +18,6 @@ export function renderMarkdown(result: RunResult): string {
   }
 
   out.push(summaryLine(result), '');
-  if (result.guard.violations.length) {
-    out.push('> [!CAUTION]', "> Unexpected changes outside the agent's test files; nothing will be committed:", ...result.guard.violations.map((v) => `> - ${code(v)}`), '');
-  }
 
   out.push('| Source file | Decision | Test files | Reason |', '|---|---|---|---|');
   for (const pkg of result.packages) {

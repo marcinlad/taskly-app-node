@@ -38,7 +38,6 @@ function result(overrides: Partial<RunResult> = {}): RunResult {
       coverageBefore: { 'backend/src/factory.ts': coverage(0) },
     }],
     keptFiles: ['backend/tests/factory.test.ts'],
-    guard: { checked: true, violations: [] },
     usage: { inputTokens: 1000, outputTokens: 500, cacheReadTokens: 9000, cacheWriteTokens: 1000 },
     transcript: [],
     ...overrides,
@@ -72,13 +71,12 @@ it('renders model-written text inert', () => {
   expect(sanitize('raw https://example.com/path')).toBe('raw `https://example.com/path`');
 });
 
-it('flags guard violations and session errors', () => {
+it('flags session errors', () => {
   const base = result();
   base.packages[0].agent!.error = 'Session timed out after 20 minutes.';
-  const markdown = renderMarkdown({ ...base, guard: { checked: true, violations: ['backend/src/factory.ts'] } });
+  const markdown = renderMarkdown(base);
   expect(markdown).toContain('⚠️');
   expect(markdown).toContain('> backend: Session timed out after 20 minutes.');
-  expect(markdown).toContain("> - `backend/src/factory.ts`");
 });
 
 it('says so when nothing needs tests', () => {

@@ -1,7 +1,7 @@
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { expect, it, vi } from 'vitest';
-import { DEFAULT_LIMITS, PACKAGES } from '../src/config.ts';
+import { PACKAGES } from '../src/config.ts';
 import type { Sandbox } from '../src/process.ts';
 import { verifyPackage } from '../src/verify.ts';
 import { tempRepo } from './helpers.ts';
@@ -62,7 +62,7 @@ it('keeps passing files and reverts failing, flaky and ill-typed ones', async ()
     tscOutput: "tests/typed.test.ts(1,1): error TS2322: Type 'string' is not assignable to type 'number'.\n",
   });
 
-  const result = await verifyPackage(root, PACKAGES.backend, sandbox, writes, DEFAULT_LIMITS);
+  const result = await verifyPackage(root, PACKAGES.backend, sandbox, writes);
 
   const byPath = Object.fromEntries(result.files.map((f) => [f.path, f]));
   expect(byPath['backend/tests/good.test.ts']).toEqual({ path: 'backend/tests/good.test.ts', kept: true, passedRuns: 3, reason: undefined });
@@ -92,7 +92,7 @@ it('reverts agent files that fail only in the full suite and reports failures el
       (args[0] === 'vitest' && args.slice(2).every((a) => a.startsWith('--')) ? fullSuite : isolated).npx(dir, args)),
   };
 
-  const result = await verifyPackage(root, PACKAGES.backend, sandbox, writes, DEFAULT_LIMITS);
+  const result = await verifyPackage(root, PACKAGES.backend, sandbox, writes);
 
   expect(result.files).toEqual([
     { path: 'backend/tests/good.test.ts', kept: true, passedRuns: 3 },

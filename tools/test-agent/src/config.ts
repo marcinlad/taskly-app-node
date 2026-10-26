@@ -54,31 +54,7 @@ export const SHARED_SKILLS = ['unit-test-workflow', 'test-quality'];
 export const AGENT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const SKILLS_DIR = path.join(AGENT_ROOT, 'skills');
 
-export interface Limits {
-  maxTargets: number;
-  maxIterations: number;
-  sessionTimeoutMs: number;
-  maxTestRuns: number;
-  maxWrites: number;
-  maxReadBytes: number;
-  maxWriteBytes: number;
-  maxToolOutputChars: number;
-  commandTimeoutMs: number;
-  verifyRepeats: number;
-}
-
-export const DEFAULT_LIMITS: Limits = {
-  maxTargets: 8,
-  maxIterations: 60,
-  sessionTimeoutMs: 20 * 60_000,
-  maxTestRuns: 30,
-  maxWrites: 20,
-  maxReadBytes: 200_000,
-  maxWriteBytes: 100_000,
-  maxToolOutputChars: 12_000,
-  commandTimeoutMs: 5 * 60_000,
-  verifyRepeats: 3,
-};
+export const DEFAULT_MAX_TARGETS = 8;
 
 export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
