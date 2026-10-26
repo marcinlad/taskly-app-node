@@ -30,16 +30,7 @@ jobs:
     outputs:
       kept: ${{ steps.patch.outputs.kept }}
     steps:
-      # Agent from the base branch, so changes to the agent in a PR don't affect that PR's own review.
-      - name: Check out the agent (base branch, trusted)
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.base.sha }}
-          path: agent
-          sparse-checkout: tools/test-agent
-          persist-credentials: false
-
-      - name: Check out the pull request (untrusted)
+      - name: Check out the pull request
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
@@ -47,21 +38,14 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Check that the base branch has the agent
-        run: |
-          if [ ! -f agent/tools/test-agent/package.json ]; then
-            echo "::error::tools/test-agent is not on the base branch yet; merge the agent first."
-            exit 1
-          fi
-
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: agent/tools/test-agent/package-lock.json
+          cache-dependency-path: pr/tools/test-agent/package-lock.json
 
       - name: Install the agent
-        working-directory: agent/tools/test-agent
+        working-directory: pr/tools/test-agent
         run: npm ci --no-audit --no-fund
 
       # Install scripts run without secrets, and nothing they start survives into the agent step.
@@ -74,7 +58,7 @@ jobs:
           done
 
       - name: Run the agent
-        working-directory: agent/tools/test-agent
+        working-directory: pr/tools/test-agent
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           TEST_AGENT_MODEL: ${{ vars.TEST_AGENT_MODEL || 'claude-opus-5-5' }}
@@ -88,8 +72,7 @@ jobs:
             echo "::error::Set the ANTHROPIC_API_KEY repository secret."
             exit 1
           fi
-          npx tsx src/cli.ts --mode pr --repo "$GITHUB_WORKSPACE/pr" \
-            --base "$BASE_SHA" --head "$HEAD_SHA" --out "$RUNNER_TEMP/test-agent"
+          npx tsx src/cli.ts --mode pr --base "$BASE_SHA" --head "$HEAD_SHA" --out "$RUNNER_TEMP/test-agent"
 
       - name: Package the verified tests as a patch
         id: patch

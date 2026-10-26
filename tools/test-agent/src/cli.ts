@@ -17,8 +17,6 @@ Options:
   --file <path>       Coverage mode: only this source file; repeatable.
   --threshold <pct>   Coverage mode: target files below this coverage (default 80).
   --max-targets <n>   Files per package per run (default ${DEFAULT_MAX_TARGETS}).
-  --repo <dir>        Repository to work on (default: the one containing this agent). CI points this at
-                      the pull request checkout while the agent itself runs from the base branch.
   --out <dir>         Where to write report.json, report.md and transcript.jsonl (default ./test-agent-output).
   --dry-run           Plan only: no model calls, no file changes.
 
@@ -35,7 +33,6 @@ async function main(): Promise<number> {
       file: { type: 'string', multiple: true },
       threshold: { type: 'string', default: '80' },
       'max-targets': { type: 'string' },
-      repo: { type: 'string' },
       out: { type: 'string', default: 'test-agent-output' },
       'dry-run': { type: 'boolean', default: false },
       help: { type: 'boolean', default: false },
@@ -49,7 +46,7 @@ async function main(): Promise<number> {
   if (packages.some((name) => name !== 'backend' && name !== 'frontend')) throw new Error(`Unknown package in ${packages.join(', ')}`);
   const maxTargets = values['max-targets'] ? positiveInt(values['max-targets'], '--max-targets') : DEFAULT_MAX_TARGETS;
 
-  const repoRoot = path.resolve(values.repo ?? path.join(AGENT_ROOT, '..', '..'));
+  const repoRoot = path.resolve(AGENT_ROOT, '..', '..');
   const outDir = path.resolve(values.out);
   const result = await run({
     mode: values.mode,

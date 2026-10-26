@@ -24,13 +24,12 @@ A custom agent that writes and updates Vitest unit tests for the frontend and th
 
 Prerequisites:
 
-1. The agent and workflows are on the default branch. The workflow runs the agent from the pull request's base branch, so changes to the agent take effect after they are merged.
-2. A repository secret `ANTHROPIC_API_KEY`.
-3. Optional repository variables: `TEST_AGENT_MODEL` (default `claude-opus-5-5`) and `TEST_AGENT_EFFORT` (default `high`).
+1. A repository secret `ANTHROPIC_API_KEY`.
+2. Optional repository variables: `TEST_AGENT_MODEL` (default `claude-opus-5-5`) and `TEST_AGENT_EFFORT` (default `high`).
 
 The workflow runs on every non-draft pull request from a branch of the same repository that changes `backend/**` or `frontend/**`. Each run:
 
-1. checks out the agent from the base branch and the pull request separately;
+1. checks out the pull request, including its version of the agent, so a pull request that changes the agent and application code is reviewed by the changed agent;
 2. installs the pull request's dependencies in a container without secrets;
 3. runs the agent with tests in a network-less container;
 4. commits the verified tests to the pull request branch;
@@ -102,7 +101,8 @@ Coverage over all coverage-mode runs:
 - Forks are not supported.
 - At most 8 files per package per run; the rest of a large pull request is listed as not targeted.
 - Verification proves the tests pass, type-check and are stable. It does not prove they would catch a regression, so a weak but passing test can get through.
-- Running the agent from the base branch guards against accidental changes to the agent, not against a malicious collaborator: anyone who can push a branch can also edit the workflow file in their pull request. That is inherent to the `pull_request` trigger and why forks are excluded.
+- The agent and the workflow run from the pull request, so a collaborator with push access could change them. That is inherent to the `pull_request` trigger and why forks are excluded; protecting `.github/` and `tools/test-agent/` with required code-owner review is listed below.
+- A pull request that changes only the agent runs its unit tests in CI, not a full agent run; the full run happens on the next pull request that changes application code.
 - The coverage mode runs locally, not in a workflow.
 - No hard cost cap per run beyond turn, test-run and time limits.
 
