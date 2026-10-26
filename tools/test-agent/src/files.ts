@@ -1,8 +1,10 @@
 import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { isReadable } from './paths.ts';
+import { isReadable, resolveInsideRoot } from './paths.ts';
 
 export async function walkFiles(repoRoot: string, dirRel: string, limit = 5_000): Promise<string[]> {
+  // readdir follows a symlinked start directory or ancestor; symlinks found while recursing are skipped below.
+  await resolveInsideRoot(repoRoot, dirRel);
   const found: string[] = [];
   async function visit(rel: string): Promise<void> {
     if (found.length >= limit) return;

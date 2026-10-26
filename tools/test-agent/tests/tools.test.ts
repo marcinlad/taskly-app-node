@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { PACKAGES } from '../src/config.ts';
@@ -55,6 +55,19 @@ describe('reading', () => {
     expect((await call('list_files', { dir: '.' })).split('\n')).toEqual(['backend/src/factory.ts', 'backend/tests/router.test.ts', 'frontend/src/lib/http.ts']);
     expect(await call('search_code', { query: 'createApp' })).toBe('backend/src/factory.ts:1: export function createApp() {}');
     expect(await call('search_code', { query: 'ANTHROPIC_API_KEY' })).toBe('No matches for "ANTHROPIC_API_KEY".');
+  });
+
+  it('does not follow symlinks out of the repository when listing or searching', async () => {
+    const { call, repoRoot } = await setup();
+    const outside = await tempRepo({ 'runner.json': '{ "token": "secret" }' });
+    await symlink(outside, path.join(repoRoot, 'backend/docs'));
+    await mkdir(path.join(outside, 'sub'));
+    await writeFile(path.join(outside, 'sub/more.json'), '{ "token": "secret" }');
+    await expect(call('list_files', { dir: 'backend/docs' })).rejects.toThrow(/symlink|escapes the repository/);
+    await expect(call('list_files', { dir: 'backend/docs/sub' })).rejects.toThrow(/symlink|escapes the repository/);
+    await expect(call('search_code', { query: 'token', dir: 'backend/docs' })).rejects.toThrow(/symlink|escapes the repository/);
+    expect(await call('search_code', { query: 'token', dir: 'backend' })).toBe('No matches for "token".');
+    expect(await call('list_files', { dir: 'backend' })).not.toContain('docs');
   });
 
   it('loads skills and records their use once', async () => {
