@@ -193,7 +193,7 @@ jobs:
                 stale) echo 'The branch changed while the agent ran, so nothing was committed; the run for the new head will cover it.' ;;
                 rejected) echo '🚫 The patch was rejected because it touches a file outside the allowed test paths, so nothing was committed. This should never happen and may mean a prompt injection or a bug in the agent; the file is named in the run log.' ;;
                 conflict) echo '❌ The patch does not apply to this branch, so nothing was committed. The patch is in the run artifacts.' ;;
-                push-failed) echo '❌ Pushing to this branch failed (for example, branch protection), so nothing was committed. Apply `tests.patch` from the run artifacts with `git apply`.' ;;
+                push-failed) echo "❌ Pushing to this branch failed (for example, branch protection), so nothing was committed. Apply \`tests.patch\` from the run artifacts with \`git apply\`." ;;
               esac
             elif [ "${COMMIT_OUTCOME:-}" = failure ]; then
               echo '❌ Committing the tests failed, so nothing was committed. See the run log.'
