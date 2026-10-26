@@ -45,7 +45,7 @@ export const PACKAGES: Record<PackageName, PackageConfig> = {
     ],
     testFilePattern: /^frontend\/src\/[\w./-]+\.test\.(ts|tsx)$/,
     skills: ['frontend-vitest-rtl'],
-    format: ['prettier', '--write', '--log-level', 'warn'],
+    format: ['prettier', '--log-level', 'warn'],
   },
 };
 

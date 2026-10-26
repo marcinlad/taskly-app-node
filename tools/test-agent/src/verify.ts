@@ -40,8 +40,10 @@ export async function verifyPackage(
   }
 
   // 0. Format first, so what gets verified is exactly what gets committed.
-  if (pkg.format && files.length) {
-    await sandbox.npx(pkg.dir, [...pkg.format, ...files.map((file) => path.posix.relative(pkg.dir, file))]);
+  // The formatter prints the formatted file and the host writes it: the sandbox stays read-only.
+  for (const file of pkg.format ? files : []) {
+    const formatted = await sandbox.run(pkg.dir, [...pkg.format!, path.posix.relative(pkg.dir, file)]);
+    if (formatted.exitCode === 0 && formatted.stdout) await writeFile(path.join(repoRoot, file), formatted.stdout, 'utf8');
   }
 
   // 1. Each file must pass on its own, several runs in a row; passing and then failing means flaky.
@@ -103,7 +105,7 @@ export async function revert(repoRoot: string, file: string, record: WriteRecord
 }
 
 export async function runTypecheck(repoRoot: string, pkg: PackageConfig, sandbox: Sandbox): Promise<{ errors: string[] }> {
-  const result = await sandbox.npx(pkg.dir, ['tsc', '--noEmit', '--pretty', 'false']);
+  const result = await sandbox.run(pkg.dir, ['tsc', '--noEmit', '--pretty', 'false']);
   if (result.timedOut) return { errors: [`${pkg.dir}: typecheck timed out`] };
   return { errors: parseTscOutput(stripAnsi(result.stdout), pkg.dir) };
 }

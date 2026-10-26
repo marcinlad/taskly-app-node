@@ -44,7 +44,7 @@ async function context(): Promise<SessionContext> {
     targets: [{ path: 'backend/src/factory.ts', package: 'backend', reason: 'low coverage', existingTests: [] }],
     diffs: new Map(),
     skills: new Map([['backend-vitest', { name: 'backend-vitest', description: 'Backend conventions', body: 'Body' }]]),
-    sandbox: { npx: vi.fn() },
+    sandbox: { run: vi.fn() },
   };
 }
 

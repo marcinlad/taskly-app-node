@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { SandboxMode } from './config.ts';
 
@@ -50,19 +51,28 @@ export function runCommand(command: string, args: string[], options: CommandOpti
 }
 
 export interface Sandbox {
-  npx(packageDir: string, args: string[], extraEnv?: Record<string, string>): Promise<CommandResult>;
+  run(packageDir: string, args: string[], extraEnv?: Record<string, string>): Promise<CommandResult>;
 }
 
-// docker: a throwaway container without network that mounts only the package directory, so pull request code
-// can't reach the internet, the agent's process, or files the host runs later (.git config, the agent itself).
 const COMMAND_TIMEOUT_MS = 5 * 60_000;
+// Writable in the container: our scratch output, and Vite's bundled config and cache (tmpfs, gone afterwards).
+const SCRATCH_DIR = 'node_modules/.test-agent';
+const TMPFS_DIRS = ['node_modules/.vite-temp', 'node_modules/.vite'];
 
+// docker: a throwaway container without network that mounts only the package directory, read-only, so pull request
+// code can't reach the internet, the agent's process, files the host runs later (.git config, the agent itself),
+// or the source the tests are verified against. local mode has none of these protections; it is for development.
 export function createSandbox(repoRoot: string, mode: SandboxMode, image: string): Sandbox {
   return {
-    async npx(packageDir, args, extraEnv = {}) {
-      const cwd = path.join(repoRoot, packageDir);
-      if (mode === 'local') return runCommand('npx', ['--no-install', ...args], { cwd, timeoutMs: COMMAND_TIMEOUT_MS, extraEnv });
-      const user = typeof process.getuid === 'function' ? [`--user`, `${process.getuid()}:${process.getgid?.()}`] : [];
+    async run(packageDir, [bin, ...args], extraEnv = {}) {
+      const hostDir = path.join(repoRoot, packageDir);
+      if (mode === 'local') {
+        return runCommand(path.join(hostDir, 'node_modules', '.bin', bin), args, { cwd: hostDir, timeoutMs: COMMAND_TIMEOUT_MS, extraEnv });
+      }
+      // Mount points inside a read-only mount must already exist.
+      for (const dir of [SCRATCH_DIR, ...TMPFS_DIRS]) await mkdir(path.join(hostDir, dir), { recursive: true });
+      const boxDir = `/repo/${packageDir}`;
+      const ids = typeof process.getuid === 'function' ? { uid: process.getuid(), gid: process.getgid?.() ?? 0 } : undefined;
       const envArgs = Object.entries(cleanEnv(extraEnv))
         .filter(([name]) => !['PATH', 'HOME', 'TMPDIR'].includes(name))
         .flatMap(([name, value]) => ['--env', `${name}=${value}`]);
@@ -72,10 +82,13 @@ export function createSandbox(repoRoot: string, mode: SandboxMode, image: string
           'run', '--rm', '--network', 'none',
           '--memory', '2g', '--cpus', '2', '--pids-limit', '512',
           '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
-          ...user, '--env', 'HOME=/tmp',
+          ...(ids ? ['--user', `${ids.uid}:${ids.gid}`] : []), '--env', 'HOME=/tmp',
           ...envArgs,
-          '--volume', `${path.join(repoRoot, packageDir)}:/repo/${packageDir}`, '--workdir', `/repo/${packageDir}`,
-          image, 'npx', '--no-install', ...args,
+          '--volume', `${hostDir}:${boxDir}:ro`,
+          '--volume', `${path.join(hostDir, SCRATCH_DIR)}:${boxDir}/${SCRATCH_DIR}`,
+          ...TMPFS_DIRS.flatMap((dir) => ['--tmpfs', `${boxDir}/${dir}${ids ? `:uid=${ids.uid},gid=${ids.gid}` : ''}`]),
+          '--workdir', boxDir, '--entrypoint', '',
+          image, `node_modules/.bin/${bin}`, ...args,
         ],
         { cwd: repoRoot, timeoutMs: COMMAND_TIMEOUT_MS },
       );

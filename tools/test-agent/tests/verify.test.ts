@@ -15,7 +15,7 @@ interface Behavior {
 function fakeSandbox(root: string, behavior: Behavior): Sandbox {
   const runs = new Map<string, number>();
   return {
-    npx: vi.fn(async (pkgDir: string, args: string[]) => {
+    run: vi.fn(async (pkgDir: string, args: string[]) => {
       const ok = { exitCode: 0, stdout: '', stderr: '', timedOut: false, durationMs: 1 };
       if (args[0] === 'tsc') return { ...ok, exitCode: behavior.tscOutput ? 2 : 0, stdout: behavior.tscOutput ?? '' };
       if (args[0] !== 'vitest') return ok;
@@ -88,8 +88,8 @@ it('reverts agent files that fail only in the full suite and reports failures el
   const isolated = fakeSandbox(root, {});
   const fullSuite = fakeSandbox(root, { failing: ['tests/other.test.ts', 'tests/suite-only.test.ts'] });
   const sandbox: Sandbox = {
-    npx: vi.fn((dir: string, args: string[]) =>
-      (args[0] === 'vitest' && args.slice(2).every((a) => a.startsWith('--')) ? fullSuite : isolated).npx(dir, args)),
+    run: vi.fn((dir: string, args: string[]) =>
+      (args[0] === 'vitest' && args.slice(2).every((a) => a.startsWith('--')) ? fullSuite : isolated).run(dir, args)),
   };
 
   const result = await verifyPackage(root, PACKAGES.backend, sandbox, writes);

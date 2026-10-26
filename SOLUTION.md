@@ -35,7 +35,7 @@ The workflow runs on every non-draft pull request from a branch of the same repo
 4. commits the verified tests to the pull request branch;
 5. posts or updates one comment with the report.
 
-Both containers mount only the package directory, so code from the pull request can't change `.git` or the agent, which later run on the host.
+Both containers mount only the package directory, so code from the pull request can't change `.git` or the agent, which later run on the host. Tests run with that directory read-only, so they can't change the source they are verified against; the install step needs write access, so the workflow stops if installing changed any tracked file.
 
 The run's artifacts hold the report, the full transcript of model turns and tool calls, and the patch.
 

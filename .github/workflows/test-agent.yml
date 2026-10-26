@@ -57,6 +57,16 @@ jobs:
               --volume "$PWD/$pkg:/repo/$pkg" --workdir "/repo/$pkg" "$SANDBOX_IMAGE" npm ci --no-audit --no-fund
           done
 
+      # Installing needs write access to the package; tests later run read-only against exactly this tree.
+      - name: Check that installing changed no tracked files
+        working-directory: pr
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --short
+            echo "::error::Installing dependencies changed files in the checkout."
+            exit 1
+          fi
+
       - name: Run the agent
         working-directory: pr/tools/test-agent
         env:

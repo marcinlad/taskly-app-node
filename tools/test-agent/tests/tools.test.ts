@@ -15,7 +15,7 @@ async function setup(mode: 'pr' | 'coverage' = 'coverage') {
     'frontend/src/lib/http.ts': 'export {}\n',
     '.env': 'ANTHROPIC_API_KEY=secret\n',
   });
-  const sandbox: Sandbox = { npx: vi.fn() };
+  const sandbox: Sandbox = { run: vi.fn() };
   const ctx: SessionContext = {
     repoRoot, pkg: PACKAGES.backend, mode, sandbox,
     targets: [{ path: 'backend/src/factory.ts', package: 'backend', reason: 'test', existingTests: [] }],
@@ -119,11 +119,11 @@ describe('run_tests', () => {
   it('accepts only test files of the package and enforces the run limit', async () => {
     const { call, sandbox } = await setup();
     await expect(call('run_tests', { files: ['backend/src/factory.ts'] })).rejects.toThrow('not a test file');
-    vi.mocked(sandbox.npx).mockResolvedValue({ exitCode: 1, stdout: '', stderr: 'boom', timedOut: false, durationMs: 1 });
+    vi.mocked(sandbox.run).mockResolvedValue({ exitCode: 1, stdout: '', stderr: 'boom', timedOut: false, durationMs: 1 });
     const output = await call('run_tests', { files: ['backend/tests/router.test.ts'] });
     expect(output).toContain('ERROR: Vitest did not produce a report');
     expect(output.endsWith(TRIAGE_HINT)).toBe(true);
-    expect(vi.mocked(sandbox.npx).mock.calls[0][1]).toEqual(expect.arrayContaining(['vitest', 'run', 'tests/router.test.ts', '--reporter=json']));
+    expect(vi.mocked(sandbox.run).mock.calls[0][1]).toEqual(expect.arrayContaining(['vitest', 'run', 'tests/router.test.ts', '--reporter=json']));
     for (let i = 1; i < MAX_TEST_RUNS; i++) await call('run_tests', { files: ['backend/tests/router.test.ts'] });
     await expect(call('run_tests', { files: ['backend/tests/router.test.ts'] })).rejects.toThrow(`Test run limit (${MAX_TEST_RUNS}) reached`);
   });
@@ -152,7 +152,7 @@ describe('submit_report', () => {
 it('stops pointing to failure-triage once it is loaded', async () => {
   const { call, sandbox, ctx } = await setup();
   ctx.skills.set('failure-triage', { name: 'failure-triage', description: 'Triage', body: 'Steps.' });
-  vi.mocked(sandbox.npx).mockResolvedValue({ exitCode: 1, stdout: '', stderr: 'boom', timedOut: false, durationMs: 1 });
+  vi.mocked(sandbox.run).mockResolvedValue({ exitCode: 1, stdout: '', stderr: 'boom', timedOut: false, durationMs: 1 });
   await call('load_skill', { name: 'failure-triage' });
   expect(await call('run_tests', { files: ['backend/tests/router.test.ts'] })).not.toContain(TRIAGE_HINT);
 });
