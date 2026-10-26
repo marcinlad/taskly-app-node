@@ -9,7 +9,6 @@ export interface ChangedFile {
 }
 
 const GIT_TIMEOUT_MS = 60_000;
-/** Refs come from workflow inputs; accept SHAs and ordinary ref names only. */
 const SAFE_REF = /^[\w./@{}~^-]{1,200}$/;
 
 async function git(repoRoot: string, args: string[]): Promise<string> {
@@ -27,7 +26,6 @@ export async function isGitRepository(repoRoot: string): Promise<boolean> {
   return result.exitCode === 0 && result.stdout.trim() === 'true';
 }
 
-/** Files changed between the merge base of `base` and `head`, as a pull request shows them. */
 export async function changedFiles(repoRoot: string, base: string, head: string): Promise<ChangedFile[]> {
   assertRef(base);
   assertRef(head);
@@ -35,7 +33,6 @@ export async function changedFiles(repoRoot: string, base: string, head: string)
   return parseNameStatus(output);
 }
 
-/** Parses `git diff --name-status -z` output. */
 export function parseNameStatus(output: string): ChangedFile[] {
   const fields = output.split('\0').filter((field) => field.length > 0);
   const files: ChangedFile[] = [];
@@ -60,7 +57,6 @@ export async function fileDiff(repoRoot: string, base: string, head: string, fil
   return git(repoRoot, ['diff', '--unified=5', '--no-color', `${base}...${head}`, '--', file]);
 }
 
-/** Paths with uncommitted changes (modified, added or untracked) in the working tree. */
 export async function dirtyPaths(repoRoot: string): Promise<string[]> {
   const output = await git(repoRoot, ['status', '--porcelain=v1', '-z', '--untracked-files=all']);
   const fields = output.split('\0').filter(Boolean);

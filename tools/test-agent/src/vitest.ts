@@ -14,7 +14,6 @@ export interface TestFailure {
 
 export interface TestRunResult {
   ok: boolean;
-  /** Set when Vitest produced no report at all: a crash, a timeout or a config error. */
   error?: string;
   files: number;
   passed: number;
@@ -22,11 +21,9 @@ export interface TestRunResult {
   skipped: number;
   failures: TestFailure[];
   durationMs: number;
-  /** Per source file, present when the run collected coverage. */
   coverage?: Record<string, FileCoverage>;
 }
 
-/** Shape of the parts of Vitest's JSON reporter output that we read. */
 interface VitestJsonReport {
   numTotalTests: number;
   numPassedTests: number;
@@ -42,16 +39,11 @@ interface VitestJsonReport {
 }
 
 export interface RunVitestOptions {
-  /** Repository-relative test files. Empty runs the whole suite. */
   files: string[];
   coverage?: boolean;
 }
 
-/**
- * Runs Vitest in a package and reads its JSON report. Pass/fail comes from the report, not the exit
- * code: the backend's per-file coverage thresholds fail the process whenever only part of the
- * suite runs, which says nothing about the tests themselves.
- */
+// Pass/fail comes from the JSON report: backend coverage thresholds fail the exit code whenever only part of the suite runs.
 export async function runVitest(
   repoRoot: string,
   pkg: PackageConfig,
@@ -126,7 +118,6 @@ function crashed(result: CommandResult): TestRunResult {
   };
 }
 
-/** Keeps the assertion and the first stack frames inside the repo; drops node_modules frames. */
 export function cleanMessage(message: string): string {
   const lines = stripAnsi(message).split('\n');
   const kept: string[] = [];

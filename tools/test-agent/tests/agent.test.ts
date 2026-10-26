@@ -12,7 +12,6 @@ function message(stop_reason: string, content: unknown[] = []) {
   return { model: 'claude-opus-5-5', stop_reason, content, usage: { input_tokens: 100, output_tokens: 20, cache_read_input_tokens: 50, cache_creation_input_tokens: 10 } };
 }
 
-/** A stand-in for client.beta.messages.toolRunner that replays scripted turns. */
 function fakeClient(steps: Step[]) {
   const pushed: unknown[] = [];
   let params: Record<string, unknown> = {};

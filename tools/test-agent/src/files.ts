@@ -2,7 +2,6 @@ import { readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { isReadable } from './paths.ts';
 
-/** Lists readable files under `dirRel`, sorted, as repository-relative POSIX paths. */
 export async function walkFiles(repoRoot: string, dirRel: string, limit = 5_000): Promise<string[]> {
   const found: string[] = [];
   async function visit(rel: string): Promise<void> {
@@ -29,7 +28,6 @@ export async function walkFiles(repoRoot: string, dirRel: string, limit = 5_000)
 const IMPORT_SPECIFIER = /(?:from\s+|import\s*\(\s*|import\s+|require\(\s*)['"]([^'"]+)['"]/g;
 const MOCK_SPECIFIER = /vi\.mock\(\s*['"]([^'"]+)['"]/g;
 
-/** Relative module specifiers resolved to repo paths without extension. */
 function resolveSpecifiers(fileRel: string, source: string, pattern: RegExp): Set<string> {
   const dir = path.posix.dirname(fileRel);
   const modules = new Set<string>();
@@ -41,10 +39,7 @@ function resolveSpecifiers(fileRel: string, source: string, pattern: RegExp): Se
   return modules;
 }
 
-/**
- * Modules a test file exercises: those it imports and does not replace with `vi.mock`. A test
- * that mocks a module imports it only to drive the mock, so it does not test that module.
- */
+// A test that mocks a module imports it only to drive the mock, so it does not test it.
 export function testedModules(fileRel: string, source: string): string[] {
   const mocked = resolveSpecifiers(fileRel, source, MOCK_SPECIFIER);
   return [...resolveSpecifiers(fileRel, source, IMPORT_SPECIFIER)].filter((module) => !mocked.has(module));
@@ -54,7 +49,6 @@ export function stripExtension(file: string): string {
   return file.replace(/\.(ts|tsx|js|jsx|mjs|cjs)$/, '');
 }
 
-/** Test files that import `sourceRel` without mocking it. */
 export async function findRelatedTests(repoRoot: string, testFiles: string[], sourceRel: string): Promise<string[]> {
   const target = stripExtension(sourceRel);
   const related: string[] = [];

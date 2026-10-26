@@ -5,12 +5,10 @@ import type { ChangedFile, ChangeStatus } from './git.ts';
 import { isTestableSource, isTestFile, packageOf } from './paths.ts';
 
 export interface Target {
-  /** Source file to cover, repository-relative. */
   path: string;
   package: PackageName;
   reason: string;
   changeStatus?: ChangeStatus;
-  /** Existing test files that import it without mocking it. */
   existingTests: string[];
   baselineCoverage?: FileCoverage;
 }
@@ -24,7 +22,6 @@ export interface Plan {
   mode: 'pr' | 'coverage';
   targets: Target[];
   skipped: SkippedFile[];
-  /** Test files the pull request itself changes; the agent reads them as context. */
   changedTests: string[];
 }
 
@@ -78,7 +75,6 @@ export async function planFromChanges(repoRoot: string, changes: ChangedFile[], 
 }
 
 export interface CoveragePlanOptions {
-  /** A file is a target when its line or branch coverage is below this percentage. */
   threshold: number;
   maxTargetsPerPackage: number;
   only?: string[];

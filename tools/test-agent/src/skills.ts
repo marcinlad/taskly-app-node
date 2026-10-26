@@ -7,10 +7,6 @@ export interface Skill {
   body: string;
 }
 
-/**
- * Skills use the Agent Skills layout (`<name>/SKILL.md` with `name` and `description` frontmatter),
- * so the same files also work as Claude Code skills.
- */
 export async function loadSkills(dir: string): Promise<Map<string, Skill>> {
   const skills = new Map<string, Skill>();
   const entries = await readdir(dir, { withFileTypes: true });
@@ -34,7 +30,6 @@ export function parseSkill(content: string): Skill {
   return { name: fields.name, description: fields.description, body: match[2].trim() };
 }
 
-/** The list the system prompt shows; the agent loads a skill's body with `load_skill`. */
 export function skillIndex(skills: Skill[]): string {
   return skills.map((skill) => `- ${skill.name}: ${skill.description}`).join('\n');
 }

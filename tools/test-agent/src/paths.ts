@@ -2,16 +2,11 @@ import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { PACKAGES, type PackageConfig, type PackageName } from './config.ts';
 
-/** Directories never shown to the agent: dependencies, VCS data, build and coverage output. */
 const HIDDEN_SEGMENTS = new Set(['node_modules', '.git', 'dist', 'coverage', 'storybook-static', 'generated', '.vite']);
 
 const SECRET_FILE = /(^|\/)(\.env(\..*)?|\.npmrc|.*\.(pem|key|p12|pfx)|id_(rsa|ed25519).*)$/i;
 
-/**
- * Normalizes a model-supplied path to a POSIX path relative to the repository root, or returns null
- * when it is absolute or escapes the root. The check is lexical; callers that touch the filesystem
- * also check the real path with {@link resolveInsideRoot}.
- */
+// A lexical check; anything that touches the disk also goes through resolveInsideRoot.
 export function normalizeRepoPath(input: string): string | null {
   if (typeof input !== 'string' || input.length === 0 || input.length > 500) return null;
   if (input.includes('\0') || input.includes('\\')) return null;
@@ -49,11 +44,7 @@ export function isTestableSource(relPath: string, pkg: PackageConfig): boolean {
   return pkg.sourcePattern.test(relPath) && !pkg.sourceExclude.some((re) => re.test(relPath));
 }
 
-/**
- * Resolves `relPath` under `root` and confirms that its real location, after symlinks, is still
- * inside `root`. For a path that does not exist yet, the nearest existing parent is checked.
- * Rejects symlinks at the target itself, so a write can't be redirected.
- */
+// Follows symlinks of parent directories and refuses one at the target, so a write can't be redirected.
 export async function resolveInsideRoot(root: string, relPath: string): Promise<string> {
   const realRoot = await realpath(root);
   const absolute = path.resolve(realRoot, relPath);
@@ -78,7 +69,6 @@ export function toPosix(p: string): string {
   return p.split(path.sep).join('/');
 }
 
-/** Tools report absolute paths: host paths locally, `/repo/...` inside the sandbox container. */
 export function toRepoRelative(absolute: string, repoRoot: string): string {
   for (const root of [repoRoot, '/repo']) {
     const rel = path.relative(root, absolute);

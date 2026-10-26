@@ -11,14 +11,11 @@ export interface FileCoverage {
   branches: Metric;
   functions: Metric;
   statements: Metric;
-  /** Collapsed ranges, e.g. ["3-7", "12"]. */
   uncoveredLines: string[];
-  /** e.g. "line 14 (if, path 2 of 2)". */
   uncoveredBranches: string[];
   uncoveredFunctions: string[];
 }
 
-/** The Istanbul file coverage format that Vitest's `json` coverage reporter writes. */
 interface IstanbulFile {
   statementMap: Record<string, { start: { line: number } }>;
   fnMap: Record<string, { name: string; decl?: { start: { line: number } }; loc?: { start: { line: number } }; line?: number }>;

@@ -8,7 +8,6 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
-/** Creates a throwaway repository-like directory with the given files; removed after each test. */
 export async function tempRepo(files: Record<string, string> = {}): Promise<string> {
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'test-agent-')));
   roots.push(root);

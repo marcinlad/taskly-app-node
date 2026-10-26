@@ -7,14 +7,11 @@ import { verifyPackage } from '../src/verify.ts';
 import { tempRepo } from './helpers.ts';
 
 interface Behavior {
-  /** Test files (relative to backend/) that always fail. */
   failing?: string[];
-  /** Test files that pass this many runs, then fail. */
   flaky?: Record<string, number>;
   tscOutput?: string;
 }
 
-/** Simulates Vitest and tsc: writes the JSON report Vitest would write for the requested files. */
 function fakeSandbox(root: string, behavior: Behavior): Sandbox {
   const runs = new Map<string, number>();
   return {

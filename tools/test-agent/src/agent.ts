@@ -21,7 +21,6 @@ export interface SessionResult {
   transcript: TranscriptEvent[];
   usage: Usage;
   iterations: number;
-  /** Set when the session ended abnormally; its test files still go through verification. */
   error?: string;
 }
 

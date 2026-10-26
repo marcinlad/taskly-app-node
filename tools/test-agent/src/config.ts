@@ -5,21 +5,13 @@ export type PackageName = 'backend' | 'frontend';
 
 export interface PackageConfig {
   name: PackageName;
-  /** Package directory, relative to the repository root. */
   dir: string;
   sourcePattern: RegExp;
-  /**
-   * Source files that are not worth unit testing. Mirrors `coverage.exclude` in the package's
-   * Vitest config, so the agent and the coverage report agree on what counts.
-   */
+  // Mirrors coverage.exclude in the package's Vitest config.
   sourceExclude: RegExp[];
-  /**
-   * Files Vitest picks up as test files. They are also the only files the agent may write:
-   * no fixtures, helpers or setup files, so one test file can never break another.
-   */
+  // Also the only files the agent may write, so one test file can never break another.
   testFilePattern: RegExp;
   skills: string[];
-  /** Formatter applied to the agent's files before verification, as `npx` arguments. */
   format?: string[];
 }
 
@@ -57,28 +49,21 @@ export const PACKAGES: Record<PackageName, PackageConfig> = {
   },
 };
 
-/** Skills every session loads first. `failure-triage` is offered by run_tests when a run fails. */
 export const SHARED_SKILLS = ['unit-test-workflow', 'test-quality'];
 
 export const AGENT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const SKILLS_DIR = path.join(AGENT_ROOT, 'skills');
 
 export interface Limits {
-  /** Files handed to the agent per package session. */
   maxTargets: number;
-  /** API requests per package session. */
   maxIterations: number;
   sessionTimeoutMs: number;
-  /** Test or coverage runs the agent may start per session. */
   maxTestRuns: number;
   maxWrites: number;
   maxReadBytes: number;
   maxWriteBytes: number;
-  /** Characters of command output returned to the model. */
   maxToolOutputChars: number;
-  /** Timeout for one test, coverage or typecheck command. */
   commandTimeoutMs: number;
-  /** How many times verification runs each new test file to catch flaky tests. */
   verifyRepeats: number;
 }
 

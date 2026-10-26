@@ -16,12 +16,9 @@ export interface RunOptions {
   repoRoot: string;
   base?: string;
   head?: string;
-  /** Coverage mode: restrict to these files. */
   only?: string[];
-  /** Coverage mode: target files below this line or branch coverage. */
   threshold: number;
   packages: PackageName[];
-  /** Plan only; no model calls and no file changes. */
   dryRun: boolean;
   limits: Limits;
   model: ModelSettings;

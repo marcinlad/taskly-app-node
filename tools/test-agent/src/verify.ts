@@ -10,7 +10,6 @@ export interface FileVerification {
   path: string;
   kept: boolean;
   reason?: string;
-  /** Isolated runs that passed, out of `limits.verifyRepeats`. */
   passedRuns?: number;
 }
 
@@ -21,12 +20,7 @@ export interface PackageVerification {
   coverageAfter?: Record<string, FileCoverage>;
 }
 
-/**
- * Checks the agent's test files independently of what the agent reported. A file is kept only if
- * it passes on its own several times in a row, type-checks, and passes in the full package suite.
- * Anything else is reverted. The agent writes test files only and Vitest isolates test files, so
- * suite failures in other files are not the agent's; they are reported, not acted on.
- */
+// The agent writes test files only and Vitest isolates them, so suite failures elsewhere are reported, not reverted.
 export async function verifyPackage(
   repoRoot: string,
   pkg: PackageConfig,
@@ -101,14 +95,12 @@ function firstFailure(result: TestRunResult, run: number): string {
   return `${prefix}: ${failure.test}\n${failure.message.slice(0, 500)}`;
 }
 
-/** Restores the content from before the agent's first write, or deletes a file the agent created. */
 export async function revert(repoRoot: string, file: string, record: WriteRecord): Promise<void> {
   const absolute = path.join(repoRoot, file);
   if (record.original === null) await rm(absolute, { force: true });
   else await writeFile(absolute, record.original, 'utf8');
 }
 
-/** Runs `tsc --noEmit` for the package; returns errors as repository-relative `path(line,col): message`. */
 export async function runTypecheck(repoRoot: string, pkg: PackageConfig, sandbox: Sandbox, limits: Limits): Promise<{ errors: string[] }> {
   const result = await sandbox.npx(pkg.dir, ['tsc', '--noEmit', '--pretty', 'false']);
   if (result.timedOut) return { errors: [`${pkg.dir}: typecheck timed out after ${limits.commandTimeoutMs} ms`] };

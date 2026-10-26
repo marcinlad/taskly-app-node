@@ -24,7 +24,6 @@ export interface SessionContext {
   pkg: PackageConfig;
   mode: 'pr' | 'coverage';
   targets: Target[];
-  /** Pull request diffs by path; empty in coverage mode. */
   diffs: Map<string, string>;
   skills: Map<string, Skill>;
   sandbox: Sandbox;
@@ -33,7 +32,6 @@ export interface SessionContext {
 }
 
 export interface WriteRecord {
-  /** Content before the agent's first write; null when the agent created the file. */
   original: string | null;
   writes: number;
 }
@@ -84,7 +82,6 @@ export function createTools(ctx: SessionContext, state: SessionState) {
     description: string;
     inputSchema: Schema;
     strict?: boolean;
-    /** Stream this tool's input as it is generated; for tools that take whole files. */
     eager?: boolean;
     run: (input: z.infer<Schema>) => Promise<string>;
   }) {
@@ -311,7 +308,6 @@ export function formatTestRun(result: TestRunResult, maxChars: number): string {
   return truncate([head, ...failures].join('\n\n'), maxChars);
 }
 
-/** Drops large fields (file contents) from tool inputs before logging. */
 function loggable(input: unknown): Record<string, unknown> {
   const entries = Object.entries((input ?? {}) as Record<string, unknown>).map(([key, value]) => {
     if (typeof value === 'string' && value.length > 200) return [key, `<${value.length} chars>`];

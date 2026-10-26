@@ -16,10 +16,7 @@ export interface CommandOptions {
   extraEnv?: Record<string, string>;
 }
 
-/**
- * The environment test code runs with. It is built from scratch, not copied from `process.env`, so
- * code under test (which comes from the pull request) never sees API keys or the GitHub token.
- */
+// Built from scratch so code from the pull request never sees API keys or the GitHub token.
 export function cleanEnv(extra: Record<string, string> = {}): Record<string, string> {
   const env: Record<string, string> = { CI: 'true', NODE_ENV: 'test', FORCE_COLOR: '0', NO_COLOR: '1' };
   for (const name of ['PATH', 'HOME', 'TMPDIR', 'LANG', 'TZ']) {
@@ -29,7 +26,6 @@ export function cleanEnv(extra: Record<string, string> = {}): Record<string, str
   return { ...env, ...extra };
 }
 
-/** Runs a command without a shell, so no argument is ever interpreted by one. */
 export function runCommand(command: string, args: string[], options: CommandOptions): Promise<CommandResult> {
   const started = Date.now();
   return new Promise((resolve) => {
@@ -57,11 +53,7 @@ export interface Sandbox {
   npx(packageDir: string, args: string[], extraEnv?: Record<string, string>): Promise<CommandResult>;
 }
 
-/**
- * `local` runs on the host with a clean environment. `docker` runs the same command in a throwaway
- * container with no network, so code from the pull request can't reach the agent's process,
- * its credentials or the internet. CI uses `docker`.
- */
+// docker: a throwaway container without network, so pull request code can't reach the agent or the internet.
 export function createSandbox(repoRoot: string, mode: SandboxMode, image: string, timeoutMs: number): Sandbox {
   return {
     async npx(packageDir, args, extraEnv = {}) {
@@ -95,7 +87,6 @@ export function truncate(text: string, maxChars: number): string {
   return `${text.slice(0, head)}\n… [${text.length - maxChars} characters omitted] …\n${text.slice(-tail)}`;
 }
 
-/** Strips ANSI escape codes that some tools print even with colors off. */
 export function stripAnsi(text: string): string {
   return text.replace(/\u001b\[[0-9;]*[A-Za-z]/g, '');
 }

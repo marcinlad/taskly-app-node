@@ -3,10 +3,7 @@ import { formatCoverage } from './coverage.ts';
 import type { Target } from './planner.ts';
 import { skillIndex, type Skill } from './skills.ts';
 
-/**
- * Stable across runs of the same package and mode, so it caches: no timestamps, paths of the
- * current run or other per-run values here. Those go in the task message.
- */
+// No per-run values here, so the prompt stays cacheable across runs.
 export function systemPrompt(pkg: PackageConfig, mode: 'pr' | 'coverage', skills: Skill[], recommended: string[]): string {
   const goal =
     mode === 'pr'

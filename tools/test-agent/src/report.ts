@@ -1,13 +1,8 @@
 import { totals, type Metric } from './coverage.ts';
 import type { PackageResult, RunResult } from './orchestrator.ts';
 
-/** Marks the agent's comment so the workflow updates it instead of adding a new one each push. */
 export const COMMENT_MARKER = '<!-- taskly-test-agent -->';
 
-/**
- * The pull request comment. What a reviewer acts on is visible: the outcome, a decision per file,
- * suspected bugs and the verification result. Everything else is folded into one details block.
- */
 export function renderMarkdown(result: RunResult): string {
   const out = [COMMENT_MARKER, `## Unit test agent · ${result.mode === 'pr' ? 'pull request' : 'coverage'} run`, ''];
   const { plan } = result;
@@ -123,10 +118,7 @@ function code(text: string): string {
   return `\`${text.replace(/`/g, '')}\``;
 }
 
-/**
- * Model-written text is shaped by pull request content, so it is rendered inert: no HTML, links,
- * images or @mentions, and nothing that breaks out of a table cell.
- */
+// Model-written text is shaped by pull request content: no HTML, links, images or mentions.
 export function sanitize(text: string): string {
   return text
     .replace(/</g, '&lt;')
