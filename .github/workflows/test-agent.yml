@@ -1,9 +1,5 @@
 name: Unit test agent
 
-# Runs the unit test agent on every pull request that touches application code: it decides which
-# changed files need tests, writes or updates them, verifies them, commits the verified tests to
-# the pull request branch and posts a report as a pull request comment.
-
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
@@ -18,25 +14,23 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Tests from the pull request run in this image with no network; pinned by digest.
   SANDBOX_IMAGE: node:24-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205
   ARTIFACT: test-agent-${{ github.event.pull_request.number }}-${{ github.run_attempt }}
 
 jobs:
   agent:
     name: Analyze changes and write tests
-    # Fork pull requests get no secrets, and their code must not run next to them; drafts wait.
+    # Fork pull requests get no secrets, and their code must not run next to them.
     if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    # Read-only: this job runs code from the pull request. Writing happens in the publish job.
+    # Read-only: this job runs pull request code; writing happens in the publish job.
     permissions:
       contents: read
     outputs:
       kept: ${{ steps.patch.outputs.kept }}
     steps:
-      # The agent and its skills come from the base branch, so a pull request cannot change the
-      # agent that reviews it.
+      # From the base branch, so a pull request cannot change the agent that reviews it.
       - name: Check out the agent (base branch, trusted)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -70,8 +64,7 @@ jobs:
         working-directory: agent/tools/test-agent
         run: npm ci --no-audit --no-fund
 
-      # Install scripts of the pull request's dependencies run in a throwaway container: no
-      # secrets, and nothing they start survives into the agent step.
+      # Install scripts run without secrets, and nothing they start survives into the agent step.
       - name: Install pull request dependencies in the sandbox
         working-directory: pr
         run: |
@@ -128,7 +121,6 @@ jobs:
   publish:
     name: Commit tests and report on the pull request
     needs: agent
-    # Also after a failed agent run, to report the failure; never for skipped or cancelled runs.
     if: always() && (needs.agent.result == 'success' || needs.agent.result == 'failure')
     runs-on: ubuntu-24.04
     timeout-minutes: 10
