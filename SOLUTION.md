@@ -66,6 +66,14 @@ npm run agent -- --mode coverage --dry-run             # plan only, no model cal
 
 During a run the agent calls `load_skill`. Every call is recorded, and the skills used appear in the report and the transcript.
 
+## Example run
+
+[Pull request #8](https://github.com/marcinlad/taskly-app-node/pull/8) adds a feature (clearing all completed tasks, backend and frontend) with no test changes, and breaks existing tests. The agent's comment on the pull request has the full report: a decision and reason per changed file, the repaired tests, the suite, typecheck and coverage results, and the skills used. The [run](https://github.com/marcinlad/taskly-app-node/actions/runs/40512438429) has the transcript and patches.
+
+In short: 7 target files (6 `update`, 1 `create`) and 3 skipped with a reason. Each session loaded `unit-test-workflow`, `test-quality`, `pr-change-analysis` and its package skill. All 8 test files were verified and committed, 3 of them as repairs of tests the pull request broke. Backend: 125 tests pass, line coverage 93.1% → 97.41%. Frontend: 178 tests pass. CI passes on the agent's commit.
+
+The tests for the existing code were added the same way with `--mode coverage`, in [pull request #4](https://github.com/marcinlad/taskly-app-node/pull/4).
+
 ## Assumptions
 
 - Pull requests come from branches of the same repository, by collaborators with write access. Fork pull requests are skipped.
