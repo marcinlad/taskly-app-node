@@ -1,6 +1,6 @@
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { PACKAGES } from '../src/config.ts';
 import type { Sandbox } from '../src/process.ts';
 import { verifyPackage } from '../src/verify.ts';
@@ -100,4 +100,77 @@ it('reverts agent files that fail only in the full suite and reports failures el
   ]);
   expect((await readdir(path.join(root, 'backend/tests'))).sort()).toEqual(['good.test.ts', 'other.test.ts']);
   expect(result.suite).toMatchObject({ ok: false, failures: ['backend/tests/other.test.ts › tests/other.test.ts works'] });
+});
+
+describe('steps that cannot run revert every file still kept', () => {
+  const crashed = { exitCode: 1, stdout: '', stderr: 'JavaScript heap out of memory', timedOut: false, durationMs: 1 };
+  const isFullSuite = (args: string[]) => args[0] === 'vitest' && args.slice(2).every((a) => a.startsWith('--'));
+
+  async function setup() {
+    const root = await tempRepo({ 'backend/tests/a.test.ts': '', 'backend/tests/b.test.ts': '', 'backend/tests/other.test.ts': '' });
+    const writes = new Map([
+      ['backend/tests/a.test.ts', { original: null, writes: 1 }],
+      ['backend/tests/b.test.ts', { original: null, writes: 1 }],
+    ]);
+    return { root, writes };
+  }
+
+  it('when the full suite produces no report', async () => {
+    const { root, writes } = await setup();
+    const base = fakeSandbox(root, {});
+    const sandbox: Sandbox = { run: vi.fn((dir: string, args: string[]) => (isFullSuite(args) ? Promise.resolve(crashed) : base.run(dir, args))) };
+
+    const result = await verifyPackage(root, PACKAGES.backend, sandbox, writes);
+
+    expect(result.files.map((f) => [f.path, f.kept])).toEqual([['backend/tests/a.test.ts', false], ['backend/tests/b.test.ts', false]]);
+    expect(result.files[0].reason).toMatch(/^the full package suite could not run: Vitest did not produce a report/);
+    expect((await readdir(path.join(root, 'backend/tests'))).sort()).toEqual(['other.test.ts']);
+    expect(result.suite).toMatchObject({ ok: false, error: expect.stringContaining('heap out of memory') });
+  });
+
+  it('when the rerun after rejecting a file produces no report', async () => {
+    const { root, writes } = await setup();
+    const firstSuite = fakeSandbox(root, { failing: ['tests/a.test.ts'] });
+    const base = fakeSandbox(root, {});
+    let suiteRuns = 0;
+    const sandbox: Sandbox = {
+      run: vi.fn((dir: string, args: string[]) => {
+        if (!isFullSuite(args)) return base.run(dir, args);
+        suiteRuns += 1;
+        return suiteRuns === 1 ? firstSuite.run(dir, args) : Promise.resolve({ ...crashed, timedOut: true });
+      }),
+    };
+
+    const result = await verifyPackage(root, PACKAGES.backend, sandbox, writes);
+
+    expect(result.files).toEqual([
+      { path: 'backend/tests/a.test.ts', kept: false, passedRuns: 3, reason: 'fails when the whole package suite runs' },
+      { path: 'backend/tests/b.test.ts', kept: false, passedRuns: 3, reason: 'the full package suite could not run: Vitest timed out.' },
+    ]);
+  });
+
+  it.each([
+    ['times out', { exitCode: 1, stdout: '', stderr: '', timedOut: true, durationMs: 1 }, 'typecheck could not run: tsc timed out'],
+    ['fails without per-file errors', { exitCode: 2, stdout: "error TS5083: Cannot read file 'tsconfig.json'.\n", stderr: '', timedOut: false, durationMs: 1 },
+      "typecheck could not run: tsc exited with code 2: error TS5083: Cannot read file 'tsconfig.json'."],
+  ])('when tsc %s', async (_, tscResult, reason) => {
+    const { root, writes } = await setup();
+    const base = fakeSandbox(root, {});
+    const sandbox: Sandbox = { run: vi.fn((dir: string, args: string[]) => (args[0] === 'tsc' ? Promise.resolve(tscResult) : base.run(dir, args))) };
+
+    const result = await verifyPackage(root, PACKAGES.backend, sandbox, writes);
+
+    expect(result.files.map((f) => [f.kept, f.reason])).toEqual([[false, reason], [false, reason]]);
+    expect(result.typecheck).toMatchObject({ ok: false, failure: reason.replace('typecheck could not run: ', '') });
+  });
+});
+
+it('keeps agent files when tsc reports errors only in other files', async () => {
+  const root = await tempRepo({ 'backend/tests/a.test.ts': '' });
+  const sandbox = fakeSandbox(root, { tscOutput: "src/legacy.ts(3,7): error TS2322: Type 'string' is not assignable to type 'number'.\n" });
+
+  const result = await verifyPackage(root, PACKAGES.backend, sandbox, new Map([['backend/tests/a.test.ts', { original: null, writes: 1 }]]));
+
+  expect(result.files).toEqual([{ path: 'backend/tests/a.test.ts', kept: true, passedRuns: 3 }]);
+  expect(result.typecheck).toEqual({ ok: false, agentErrors: [], otherErrors: 1, failure: undefined });
 });

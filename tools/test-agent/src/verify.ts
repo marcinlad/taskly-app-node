@@ -18,11 +18,12 @@ export interface FileVerification {
 export interface PackageVerification {
   files: FileVerification[];
   suite: { ok: boolean; passed: number; failed: number; files: number; failures: string[]; error?: string };
-  typecheck: { ok: boolean; agentErrors: string[]; otherErrors: number };
+  typecheck: { ok: boolean; agentErrors: string[]; otherErrors: number; failure?: string };
   coverageAfter?: Record<string, FileCoverage>;
 }
 
 // The agent writes test files only and Vitest isolates them, so suite failures elsewhere are reported, not reverted.
+// A step that could not run proves nothing, so it reverts every file still kept.
 export async function verifyPackage(
   repoRoot: string,
   pkg: PackageConfig,
@@ -65,7 +66,8 @@ export async function verifyPackage(
   const agentErrors = typecheck.errors.filter((line) => writes.has(line.split('(')[0]));
   for (const file of files.filter(isKept)) {
     const errors = agentErrors.filter((line) => line.startsWith(`${file}(`));
-    if (errors.length) await reject(file, `type errors:\n${errors.slice(0, 5).join('\n')}`);
+    if (typecheck.failure) await reject(file, `typecheck could not run: ${typecheck.failure}`);
+    else if (errors.length) await reject(file, `type errors:\n${errors.slice(0, 5).join('\n')}`);
   }
 
   // 3. The full suite, with coverage for the report.
@@ -74,6 +76,9 @@ export async function verifyPackage(
   if (failingInSuite.length) {
     for (const file of failingInSuite) await reject(file, 'fails when the whole package suite runs');
     suite = await runVitest(repoRoot, pkg, sandbox, { files: [], coverage: true });
+  }
+  if (suite.error) {
+    for (const file of files.filter(isKept)) await reject(file, `the full package suite could not run: ${suite.error}`);
   }
 
   return {
@@ -86,7 +91,12 @@ export async function verifyPackage(
       failures: suite.failures.map((f) => `${f.file} › ${f.test}`),
       error: suite.error,
     },
-    typecheck: { ok: typecheck.errors.length === 0, agentErrors, otherErrors: typecheck.errors.length - agentErrors.length },
+    typecheck: {
+      ok: typecheck.errors.length === 0 && !typecheck.failure,
+      agentErrors,
+      otherErrors: typecheck.errors.length - agentErrors.length,
+      failure: typecheck.failure,
+    },
     coverageAfter: suite.coverage,
   };
 }
@@ -104,10 +114,16 @@ export async function revert(repoRoot: string, file: string, record: WriteRecord
   else await writeFile(absolute, record.original, 'utf8');
 }
 
-export async function runTypecheck(repoRoot: string, pkg: PackageConfig, sandbox: Sandbox): Promise<{ errors: string[] }> {
+export async function runTypecheck(repoRoot: string, pkg: PackageConfig, sandbox: Sandbox): Promise<{ errors: string[]; failure?: string }> {
   const result = await sandbox.run(pkg.dir, ['tsc', '--noEmit', '--pretty', 'false']);
-  if (result.timedOut) return { errors: [`${pkg.dir}: typecheck timed out`] };
-  return { errors: parseTscOutput(stripAnsi(result.stdout), pkg.dir) };
+  if (result.timedOut) return { errors: [], failure: 'tsc timed out' };
+  const errors = parseTscOutput(stripAnsi(result.stdout), pkg.dir);
+  // A failing tsc without per-file errors (a crash, a config error) checked nothing.
+  if (result.exitCode !== 0 && errors.length === 0) {
+    const output = stripAnsi(`${result.stdout}\n${result.stderr}`).trim().split('\n').filter(Boolean);
+    return { errors, failure: `tsc exited with code ${result.exitCode}${output.length ? `: ${output.at(-1)!.slice(0, 300)}` : ''}` };
+  }
+  return { errors };
 }
 
 export function parseTscOutput(output: string, packageDir: string): string[] {

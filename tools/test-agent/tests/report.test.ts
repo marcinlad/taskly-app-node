@@ -83,3 +83,10 @@ it('says so when nothing needs tests', () => {
   const markdown = renderMarkdown(result({ plan: { mode: 'pr', targets: [], skipped: [], changedTests: [] }, packages: [] }));
   expect(markdown).toContain('No changed application source files need unit tests in this pull request.');
 });
+
+it('says when a verification step could not run', () => {
+  const base = result();
+  base.packages[0].verification!.suite = { ok: false, passed: 0, failed: 0, files: 0, failures: [], error: 'Vitest timed out.' };
+  base.packages[0].verification!.typecheck = { ok: false, agentErrors: [], otherErrors: 0, failure: 'tsc timed out' };
+  expect(renderMarkdown(base)).toContain('| backend | ❌ could not run | ❌ could not run |');
+});

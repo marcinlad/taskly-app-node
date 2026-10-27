@@ -38,8 +38,10 @@ export function renderMarkdown(result: RunResult): string {
     if (!v) continue;
     const before = pkg.coverageBefore ? totals(Object.values(pkg.coverageBefore)) : undefined;
     const after = v.coverageAfter ? totals(Object.values(v.coverageAfter)) : undefined;
-    const suite = v.suite.ok ? `✅ ${v.suite.passed} passed` : `❌ ${v.suite.failed} failed, ${v.suite.passed} passed`;
-    const typecheck = v.typecheck.ok ? '✅' : v.typecheck.otherErrors ? `⚠️ ${v.typecheck.otherErrors} error(s) outside agent files` : '✅ (agent errors reverted)';
+    const suite = v.suite.ok ? `✅ ${v.suite.passed} passed` : v.suite.error ? '❌ could not run' : `❌ ${v.suite.failed} failed, ${v.suite.passed} passed`;
+    const typecheck = v.typecheck.failure
+      ? '❌ could not run'
+      : v.typecheck.ok ? '✅' : v.typecheck.otherErrors ? `⚠️ ${v.typecheck.otherErrors} error(s) outside agent files` : '✅ (agent errors reverted)';
     out.push(`| ${pkg.package} | ${suite} | ${typecheck} | ${delta(before?.lines, after?.lines)} | ${delta(before?.branches, after?.branches)} |`);
   }
   out.push('');
