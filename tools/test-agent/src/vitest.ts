@@ -43,7 +43,7 @@ export interface RunVitestOptions {
   coverage?: boolean;
 }
 
-// Pass/fail comes from the JSON report: backend coverage thresholds fail the exit code whenever only part of the suite runs.
+// Test results come from the JSON report; the exit code and output add run-level failures (see runLevelError).
 export async function runVitest(
   repoRoot: string,
   pkg: PackageConfig,
@@ -58,7 +58,8 @@ export async function runVitest(
     const args = [
       'vitest', 'run',
       ...options.files.map((file) => path.posix.relative(pkg.dir, file)),
-      '--reporter=json', `--outputFile=${scratchRel}/report.json`,
+      // json for the results, dot so run-level errors (unhandled rejections) are printed.
+      '--reporter=json', '--reporter=dot', `--outputFile.json=${scratchRel}/report.json`,
       '--passWithNoTests=false',
     ];
     if (options.coverage) {
@@ -74,8 +75,12 @@ export async function runVitest(
     const coverageReport = options.coverage
       ? await readJson<Record<string, unknown>>(path.join(scratch, 'coverage', 'coverage-final.json'))
       : null;
+    const summary = summarize(report, repoRoot);
+    const runError = runLevelError(result, Boolean(options.coverage), summary.failures.length > 0);
     return {
-      ...summarize(report, repoRoot),
+      ...summary,
+      ok: summary.ok && !runError,
+      error: summary.error ?? runError,
       durationMs: result.durationMs,
       coverage: coverageReport ? parseCoverage(coverageReport, repoRoot) : undefined,
     };
@@ -107,6 +112,20 @@ export function summarize(report: VitestJsonReport, repoRoot: string): Omit<Test
     skipped,
     failures,
   };
+}
+
+const THRESHOLD_FAILURE = /does not meet .*threshold/;
+
+// Failures the JSON report doesn't show: Vitest marks every test passed, yet `vitest run` (and CI) fails.
+export function runLevelError(result: CommandResult, coverage: boolean, testsFailed: boolean): string | undefined {
+  if (result.timedOut) return 'Vitest timed out after writing its report; a test may keep the process alive.';
+  const output = stripAnsi(`${result.stdout}\n${result.stderr}`);
+  const unhandled = output.indexOf('Unhandled Error');
+  if (unhandled >= 0) return `Unhandled errors during the run fail it even though the tests passed:\n${output.slice(unhandled, unhandled + 2000).trim()}`;
+  if (result.exitCode === 0 || testsFailed) return undefined;
+  // Only coverage runs fail on thresholds, which say nothing about the tests.
+  if (coverage && THRESHOLD_FAILURE.test(output)) return undefined;
+  return `Vitest exited with code ${result.exitCode} although no test failed:\n${output.trim().slice(-2000)}`;
 }
 
 function crashed(result: CommandResult): TestRunResult {

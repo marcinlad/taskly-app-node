@@ -32,7 +32,7 @@ function fakeSandbox(root: string, behavior: Behavior): Sandbox {
         };
       });
       const failed = testResults.filter((r) => r.status === 'failed').length;
-      const out = args.find((arg) => arg.startsWith('--outputFile='))!.slice('--outputFile='.length);
+      const out = args.find((arg) => arg.startsWith('--outputFile.json='))!.slice('--outputFile.json='.length);
       await mkdir(path.dirname(path.join(root, pkgDir, out)), { recursive: true });
       await writeFile(path.join(root, pkgDir, out), JSON.stringify({ numTotalTests: files.length, numPassedTests: files.length - failed, numFailedTests: failed, testResults }));
       return ok;
@@ -186,3 +186,21 @@ it('keeps agent files when tsc reports errors only in other files', async () => 
   expect(result.files).toEqual([{ path: 'backend/tests/a.test.ts', kept: true, passedRuns: 3 }]);
   expect(result.typecheck).toEqual({ ok: false, agentErrors: [], otherErrors: 1, failure: undefined });
 });
+
+it('reverts a file whose run passes every test but fails on an unhandled rejection', async () => {
+  const root = await tempRepo({ 'backend/tests/a.test.ts': '' });
+  const base = fakeSandbox(root, {});
+  const unhandled = '⎯⎯⎯ Unhandled Errors ⎯⎯⎯\n⎯⎯⎯ Unhandled Rejection ⎯⎯⎯\nError: boom\n';
+  const sandbox: Sandbox = {
+    run: vi.fn(async (dir: string, args: string[]) => {
+      const result = await base.run(dir, args);
+      return args[0] === 'vitest' ? { ...result, exitCode: 1, stdout: unhandled } : result;
+    }),
+  };
+
+  const result = await verifyPackage(root, PACKAGES.backend, sandbox, new Map([['backend/tests/a.test.ts', { original: null, writes: 1 }]]));
+
+  expect(result.files[0]).toMatchObject({ kept: false, passedRuns: 0 });
+  expect(result.files[0].reason).toMatch(/^failed: Unhandled errors during the run fail it even though the tests passed:\nUnhandled Errors/);
+});
+

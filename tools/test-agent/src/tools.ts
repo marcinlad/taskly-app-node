@@ -310,7 +310,7 @@ export function formatTestRun(result: TestRunResult, maxChars: number): string {
   if (result.error && result.files === 0) return `ERROR: ${result.error}`;
   const head = `${result.ok ? 'PASS' : 'FAIL'}: ${result.passed} passed, ${result.failed} failed, ${result.skipped} skipped in ${result.files} file(s).`;
   const failures = result.failures.map((f) => `### ${f.file} › ${f.test}\n${f.message}`);
-  return truncate([head, ...failures].join('\n\n'), maxChars);
+  return truncate([head, ...failures, ...(result.error ? [result.error] : [])].join('\n\n'), maxChars);
 }
 
 function loggable(input: unknown): Record<string, unknown> {

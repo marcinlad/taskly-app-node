@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { collapseRanges, fileCoverage, parseCoverage, totals } from '../src/coverage.ts';
 import { parseTscOutput } from '../src/verify.ts';
-import { cleanMessage, summarize } from '../src/vitest.ts';
+import { cleanMessage, runLevelError, summarize } from '../src/vitest.ts';
 
 describe('coverage', () => {
   const file = {
@@ -82,3 +82,28 @@ it('parses tsc errors into repository paths', () => {
     "backend: error TS2688: Cannot find type definition file for 'node'.",
   ]);
 });
+
+describe('run-level errors', () => {
+  const run = (exitCode: number, stdout = '', timedOut = false) => ({ exitCode, stdout, stderr: '', timedOut, durationMs: 1 });
+  const threshold = 'ERROR: Coverage for lines (83.33%) does not meet "src/x.ts" threshold (100%) for src/x.ts';
+
+  it('accepts a clean exit', () => expect(runLevelError(run(0), false, false)).toBeUndefined());
+
+  it('rejects a non-zero exit when no test failed', () => {
+    expect(runLevelError(run(1, 'something'), false, false)).toMatch(/^Vitest exited with code 1 although no test failed/);
+  });
+
+  it('leaves a non-zero exit to the test failures that explain it', () => expect(runLevelError(run(1), false, true)).toBeUndefined());
+
+  it('tolerates coverage threshold failures only in coverage runs', () => {
+    expect(runLevelError(run(1, threshold), true, false)).toBeUndefined();
+    expect(runLevelError(run(1, threshold), false, false)).toMatch(/exited with code 1/);
+  });
+
+  it('always rejects unhandled errors and timeouts', () => {
+    expect(runLevelError(run(1, `${threshold}\nUnhandled Errors\nError: boom`), true, false)).toMatch(/^Unhandled errors during the run/);
+    expect(runLevelError(run(0, 'Unhandled Error'), true, true)).toMatch(/^Unhandled errors/);
+    expect(runLevelError(run(1, '', true), true, false)).toMatch(/timed out/);
+  });
+});
+
