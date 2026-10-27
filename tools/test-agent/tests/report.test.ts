@@ -102,3 +102,22 @@ it('lists verified changes to existing tests for review instead of committing th
   expect(markdown.split('<details>')[0]).toContain('- `backend/tests/factory.test.ts`');
 });
 
+it('does not report passing suites when a held-back update is what makes the branch pass', () => {
+  const base = result({ keptFiles: [], reviewFiles: ['backend/tests/factory.test.ts'] });
+  Object.assign(base.packages[0].verification!.files[0], { changesExisting: true, failedBefore: true });
+  const markdown = renderMarkdown(base);
+  expect(markdown).toContain('⚠️ **0** test file(s) verified · **1** reverted · **1** left for review · a test suite fails');
+  expect(markdown).toContain("1 of these files fail on this branch until `review.patch` is applied, so the branch's tests fail.");
+  expect(markdown).toContain('- `backend/tests/factory.test.ts` (fails on this branch until applied)');
+  expect(markdown).toContain('| backend | ⚠️ fails on this branch; ✅ 60 passed with `review.patch` applied | ✅ |');
+});
+
+it('lists committed repairs of existing tests separately', () => {
+  const base = result();
+  Object.assign(base.packages[0].verification!.files[0], { repairsExisting: true, failedBefore: true });
+  const markdown = renderMarkdown(base);
+  expect(markdown).toContain('✅ **1** test file(s) verified · **1** of them repaired · **1** reverted · all test suites pass');
+  expect(markdown).toContain('`backend/tests/factory.test.ts` ✅ 3×, repairs existing tests');
+  expect(markdown.split('<details>')[0]).toContain('### Repaired existing tests');
+});
+

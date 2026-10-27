@@ -225,7 +225,7 @@ export function createTools(ctx: SessionContext) {
     description:
       `Create or overwrite a test file of the ${pkg.name} package with the complete file content. ` +
       `Only test files are writable (pattern: ${pkg.testFilePattern.source}); define test data inside the test file instead of adding fixture or helper files. ` +
-      'When updating an existing test file, keep every existing test case and assertion unchanged and add new ones; the tool rejects writes that remove test cases or add .skip/.todo/.skipIf/.runIf/.fails tests, and changed existing lines are not committed automatically.',
+      'When updating an existing test file, keep every existing test case and assertion unchanged and add new ones; the tool rejects writes that remove test cases or add .skip/.todo/.skipIf/.runIf/.fails tests, and changed existing lines are not committed automatically, unless they only add names to an import or repair a file that already failed before your changes without touching an assertion.',
     inputSchema: z.object({
       path: z.string().describe('Test file path relative to the repository root.'),
       content: z.string().describe('The complete new content of the file.'),
