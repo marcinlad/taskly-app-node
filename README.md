@@ -1,5 +1,9 @@
 # Taskly App Node
 
+## Unit test agent
+
+A custom agent with reusable skills writes and updates the unit tests of both packages, and runs automatically on pull requests. See [`SOLUTION.md`](SOLUTION.md) for how it works and how to run it, and [`tools/test-agent/`](tools/test-agent/) for the agent and its skills.
+
 ## Setup
 
 ```sh

@@ -35,16 +35,18 @@ export interface WriteRecord {
   original: string | null;
 }
 
+export const REPORT_TEXT_MAX = 400;
+
 export const ReportSchema = z.object({
-  summary: z.string().describe('Two or three sentences: what you did and what reviewers should look at.'),
+  summary: z.string().describe(`Two or three sentences, at most ${REPORT_TEXT_MAX} characters: what you did and what reviewers should look at.`),
   files: z.array(
     z.object({
       source: z.string().describe('The target source file, exactly as listed in the task.'),
       decision: z.enum(['create', 'update', 'skip']),
-      reason: z.string().describe('Why this decision; for skip, why no unit test is warranted.'),
+      reason: z.string().describe(`Why this decision, at most ${REPORT_TEXT_MAX} characters; for skip, why no unit test is warranted.`),
       testFiles: z.array(z.string()).describe('Test files you created or updated for this source file.'),
       status: z.enum(['passing', 'failing', 'not_run']).describe('Result of the last run_tests call covering these test files; type errors in them count as failing.'),
-      suspectedBugs: z.array(z.string()).describe('Behavior in the source that looks wrong, with file and line. Empty if none.'),
+      suspectedBugs: z.array(z.string()).describe(`Behavior in the source that looks wrong, with file and line, each at most ${REPORT_TEXT_MAX} characters. Empty if none.`),
     }),
   ),
 });
@@ -300,11 +302,17 @@ export function createTools(ctx: SessionContext) {
     strict: true,
     run: async (report) => {
       const problems: string[] = [];
+      const tooLong = (label: string, text: string) => {
+        if (text.length > REPORT_TEXT_MAX) problems.push(`${label} has ${text.length} characters; shorten it to at most ${REPORT_TEXT_MAX}`);
+      };
+      tooLong('summary', report.summary);
       const reported = new Set(report.files.map((f) => f.source));
       for (const target of targetPaths) if (!reported.has(target)) problems.push(`missing entry for target ${target}`);
       for (const entry of report.files) {
         if (!targetPaths.has(entry.source)) problems.push(`${entry.source} is not a target of this session`);
         if (entry.decision !== 'skip' && entry.testFiles.length === 0) problems.push(`${entry.source}: decision "${entry.decision}" needs testFiles`);
+        tooLong(`${entry.source}: reason`, entry.reason);
+        entry.suspectedBugs.forEach((bug, i) => tooLong(`${entry.source}: suspected bug ${i + 1}`, bug));
         for (const testFile of entry.testFiles) {
           if (!state.writes.has(testFile)) problems.push(`${entry.source}: ${testFile} was not written in this session`);
         }

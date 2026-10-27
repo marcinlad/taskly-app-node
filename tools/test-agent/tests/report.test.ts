@@ -121,3 +121,10 @@ it('lists committed repairs of existing tests separately', () => {
   expect(markdown.split('<details>')[0]).toContain('### Repaired existing tests');
 });
 
+it('shortens long model-written text at a word and closes an open code span', () => {
+  const base = result();
+  base.packages[0].agent!.report!.files[0].reason = `${'word '.repeat(70)}the \`setup()\` stub gained \`deleteCompleted: vi.fn()\` and more`;
+  const markdown = renderMarkdown(base);
+  expect(markdown).toContain(`| ${'word '.repeat(70)}the \`setup()\` stub gained \`deleteCompleted:\` … |`);
+});
+
