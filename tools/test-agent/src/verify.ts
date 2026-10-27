@@ -53,8 +53,9 @@ export async function verifyPackage(
     let failure: string | undefined;
     for (let run = 0; run < VERIFY_REPEATS && !failure; run++) {
       const result = await runVitest(repoRoot, pkg, sandbox, { files: [file] });
-      if (result.ok) passedRuns += 1;
-      else failure = firstFailure(result, run);
+      if (!result.ok) failure = firstFailure(result, run);
+      else if (result.passed === 0) failure = 'no test passed: the file has only skipped or todo tests';
+      else passedRuns += 1;
     }
     results.set(file, { path: file, kept: true, passedRuns });
     if (failure) await reject(file, failure);

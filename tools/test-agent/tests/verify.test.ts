@@ -8,6 +8,7 @@ import { tempRepo } from './helpers.ts';
 
 interface Behavior {
   failing?: string[];
+  skippedOnly?: string[];
   flaky?: Record<string, number>;
   tscOutput?: string;
 }
@@ -25,16 +26,18 @@ function fakeSandbox(root: string, behavior: Behavior): Sandbox {
         const count = (runs.get(file) ?? 0) + 1;
         runs.set(file, count);
         const fails = behavior.failing?.includes(file) || (behavior.flaky?.[file] !== undefined && count > behavior.flaky[file]);
+        const status = fails ? 'failed' : behavior.skippedOnly?.includes(file) ? 'skipped' : 'passed';
         return {
           name: path.join(root, pkgDir, file),
-          status: fails ? 'failed' : 'passed',
-          assertionResults: [{ fullName: `${file} works`, status: fails ? 'failed' : 'passed', failureMessages: fails ? ['AssertionError: nope'] : [] }],
+          status: status === 'failed' ? 'failed' : 'passed',
+          assertionResults: [{ fullName: `${file} works`, status, failureMessages: fails ? ['AssertionError: nope'] : [] }],
         };
       });
       const failed = testResults.filter((r) => r.status === 'failed').length;
+      const passed = testResults.filter((r) => r.assertionResults[0].status === 'passed').length;
       const out = args.find((arg) => arg.startsWith('--outputFile.json='))!.slice('--outputFile.json='.length);
       await mkdir(path.dirname(path.join(root, pkgDir, out)), { recursive: true });
-      await writeFile(path.join(root, pkgDir, out), JSON.stringify({ numTotalTests: files.length, numPassedTests: files.length - failed, numFailedTests: failed, testResults }));
+      await writeFile(path.join(root, pkgDir, out), JSON.stringify({ numTotalTests: files.length, numPassedTests: passed, numFailedTests: failed, numPendingTests: files.length - passed - failed, testResults }));
       return ok;
     }),
   };
@@ -202,5 +205,20 @@ it('reverts a file whose run passes every test but fails on an unhandled rejecti
 
   expect(result.files[0]).toMatchObject({ kept: false, passedRuns: 0 });
   expect(result.files[0].reason).toMatch(/^failed: Unhandled errors during the run fail it even though the tests passed:\nUnhandled Errors/);
+});
+
+it('reverts a file in which no test passed because all are skipped or todo', async () => {
+  const root = await tempRepo({ 'backend/tests/a.test.ts': '', 'backend/tests/b.test.ts': '' });
+  const sandbox = fakeSandbox(root, { skippedOnly: ['tests/a.test.ts'] });
+
+  const result = await verifyPackage(root, PACKAGES.backend, sandbox, new Map([
+    ['backend/tests/a.test.ts', { original: null, writes: 1 }],
+    ['backend/tests/b.test.ts', { original: null, writes: 1 }],
+  ]));
+
+  expect(result.files).toEqual([
+    { path: 'backend/tests/a.test.ts', kept: false, passedRuns: 0, reason: 'no test passed: the file has only skipped or todo tests' },
+    { path: 'backend/tests/b.test.ts', kept: true, passedRuns: 3 },
+  ]);
 });
 

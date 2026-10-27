@@ -75,6 +75,12 @@ export function countTestCases(source: string): number {
   return source.match(TEST_CASE)?.length ?? 0;
 }
 
+const SKIP_MARKER = /\b(?:it|test|describe)\.(?:skip|todo)\b/g;
+
+export function countSkipMarkers(source: string): number {
+  return source.match(SKIP_MARKER)?.length ?? 0;
+}
+
 export function createSessionState(): SessionState {
   return { writes: new Map(), skillsUsed: [], testRuns: 0, lastTestRun: null, report: null };
 }
@@ -216,7 +222,7 @@ export function createTools(ctx: SessionContext, state: SessionState) {
     description:
       `Create or overwrite a test file of the ${pkg.name} package with the complete file content. ` +
       `Only test files are writable (pattern: ${pkg.testFilePattern.source}); define test data inside the test file instead of adding fixture or helper files. ` +
-      'When updating an existing test file, keep every existing test case; the tool rejects writes that remove test cases.',
+      'When updating an existing test file, keep every existing test case; the tool rejects writes that remove test cases or add .skip/.todo tests.',
     inputSchema: z.object({
       path: z.string().describe('Test file path relative to the repository root.'),
       content: z.string().describe('The complete new content of the file.'),
@@ -238,6 +244,9 @@ export function createTools(ctx: SessionContext, state: SessionState) {
           `Refused: ${rel} had ${countTestCases(original)} test cases and the new content has ${countTestCases(content)}. ` +
             'Keep existing tests; if one no longer matches intended behavior, leave it and explain in the report.',
         );
+      }
+      if (countSkipMarkers(content) > countSkipMarkers(original ?? '')) {
+        throw new Error(`Refused: the new content of ${rel} adds skipped or todo tests (.skip/.todo). Remove a test you cannot make pass instead, and explain it in the report.`);
       }
       await mkdir(path.dirname(absolute), { recursive: true });
       await writeFile(absolute, content, 'utf8');

@@ -3,7 +3,7 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { PACKAGES } from '../src/config.ts';
 import type { Sandbox } from '../src/process.ts';
-import { countTestCases, createSessionState, createTools, MAX_TEST_RUNS, MAX_WRITE_BYTES, MAX_WRITES, TRIAGE_HINT, type SessionContext } from '../src/tools.ts';
+import { countSkipMarkers, countTestCases, createSessionState, createTools, MAX_TEST_RUNS, MAX_WRITE_BYTES, MAX_WRITES, TRIAGE_HINT, type SessionContext } from '../src/tools.ts';
 import { tempRepo } from './helpers.ts';
 
 const existingTest = "import { it } from 'vitest';\nit('one', () => {});\nit.each([1, 2])('two %s', () => {});\n";
@@ -106,6 +106,17 @@ describe('write_test_file', () => {
       .rejects.toThrow('had 2 test cases and the new content has 1');
   });
 
+  it('refuses to add skipped or todo tests but keeps ones that already existed', async () => {
+    const { call, repoRoot } = await setup();
+    await expect(call('write_test_file', { path: 'backend/tests/new.test.ts', content: "it.skip('later', () => {});\nit('works', () => {});\n" }))
+      .rejects.toThrow('adds skipped or todo tests');
+
+    await writeFile(path.join(repoRoot, 'backend/tests/legacy.test.ts'), "it.todo('someday');\nit('one', () => {});\n");
+    await call('write_test_file', { path: 'backend/tests/legacy.test.ts', content: "it.todo('someday');\nit('one', () => {});\nit('two', () => {});\n" });
+    await expect(call('write_test_file', { path: 'backend/tests/legacy.test.ts', content: "it.todo('someday');\nit.todo('more');\nit('one', () => {});\nit('two', () => {});\n" }))
+      .rejects.toThrow('adds skipped or todo tests');
+  });
+
   it('enforces the write limits', async () => {
     const { call } = await setup();
     await expect(call('write_test_file', { path: 'backend/tests/a.test.ts', content: 'x'.repeat(MAX_WRITE_BYTES + 1) })).rejects.toThrow('exceeds');
@@ -155,6 +166,10 @@ it('stops pointing to failure-triage once it is loaded', async () => {
   vi.mocked(sandbox.run).mockResolvedValue({ exitCode: 1, stdout: '', stderr: 'boom', timedOut: false, durationMs: 1 });
   await call('load_skill', { name: 'failure-triage' });
   expect(await call('run_tests', { files: ['backend/tests/router.test.ts'] })).not.toContain(TRIAGE_HINT);
+});
+
+it('counts skip and todo markers', () => {
+  expect(countSkipMarkers("it.skip('a', f)\ntest.todo('b')\ndescribe.skip('c', f)\nit('d', f)\n// skip this")).toBe(3);
 });
 
 it('counts test cases including it.each and test()', () => {
