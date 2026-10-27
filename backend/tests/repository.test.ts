@@ -76,6 +76,20 @@ it('deletes tasks and handles missing tasks', async () => {
   expect(await repository.delete(1)).toBe(false);
 });
 
+it.each([3, 0])('deletes only completed tasks and returns how many were removed (%s)', async (count) => {
+  const { database, repository } = setup();
+  const remove = vi.spyOn(database.todo, 'deleteMany').mockResolvedValue({ count });
+  expect(await repository.deleteCompleted()).toBe(count);
+  expect(remove).toHaveBeenCalledOnce();
+  expect(remove).toHaveBeenCalledWith({ where: { completed: true } });
+});
+
+it('propagates database errors when clearing completed tasks', async () => {
+  const { database, repository } = setup();
+  vi.spyOn(database.todo, 'deleteMany').mockRejectedValue(new Error('Database unavailable'));
+  await expect(repository.deleteCompleted()).rejects.toThrow('Database unavailable');
+});
+
 it('propagates database errors', async () => {
   const { database, repository } = setup();
   vi.spyOn(database.todo, 'findMany').mockRejectedValue(new Error('Database unavailable'));
