@@ -93,7 +93,8 @@ jobs:
             mapfile -t files < "$out/kept-files.txt"
             git add --intent-to-add -- "${files[@]}"
             git diff --binary -- "${files[@]}" > "$out/tests.patch"
-            echo "kept=${#files[@]}" >> "$GITHUB_OUTPUT"
+            # A kept file may match its original content; count only files that actually changed.
+            echo "kept=$(git diff --name-only -- "${files[@]}" | wc -l | tr -d ' ')" >> "$GITHUB_OUTPUT"
           else
             echo "kept=0" >> "$GITHUB_OUTPUT"
           fi
