@@ -5,7 +5,7 @@ import { createTodosRouter } from '../src/features/todos/router.ts';
 import { todo } from './fixture.ts';
 
 function setup() {
-  const repository = { list: vi.fn().mockResolvedValue([todo]), create: vi.fn().mockResolvedValue(todo), get: vi.fn(), update: vi.fn(), delete: vi.fn() };
+  const repository = { list: vi.fn().mockResolvedValue([todo]), create: vi.fn().mockResolvedValue(todo), get: vi.fn(), update: vi.fn(), delete: vi.fn(), deleteCompleted: vi.fn() };
   const app = express();
   app.use(express.json());
   app.use('/api/todos', createTodosRouter(repository));
@@ -32,6 +32,43 @@ it.each([{ title: '  ' }, { title: 'x'.repeat(121) }, { title: 'Task', priority:
     expect(repository.create).not.toHaveBeenCalled();
   },
 );
+
+it('clears completed tasks and responds with the deleted count', async () => {
+  const { app, repository } = setup();
+  repository.deleteCompleted.mockResolvedValue(3);
+  const response = await request(app).delete('/api/todos?completed=true');
+  expect(response.status).toBe(200);
+  expect(response.body).toEqual({ deleted: 3 });
+  expect(repository.deleteCompleted).toHaveBeenCalledOnce();
+  expect(repository.deleteCompleted).toHaveBeenCalledWith();
+  expect(repository.delete).not.toHaveBeenCalled();
+});
+it('responds with a zero count when there are no completed tasks to clear', async () => {
+  const { app, repository } = setup();
+  repository.deleteCompleted.mockResolvedValue(0);
+  const response = await request(app).delete('/api/todos?completed=true');
+  expect(response.status).toBe(200);
+  expect(response.body).toEqual({ deleted: 0 });
+});
+it.each(['', '?completed=false', '?completed=1', '?completed=TRUE', '?completed=', '?completed=true&completed=true', '?completed=true&all=true'])(
+  'rejects clearing tasks with the query "%s" without calling the repository', async (query) => {
+    const { app, repository } = setup();
+    const response = await request(app).delete(`/api/todos${query}`);
+    expect(response.status).toBe(422);
+    expect(Array.isArray(response.body.detail)).toBe(true);
+    expect(response.body.detail.length).toBeGreaterThan(0);
+    expect(repository.deleteCompleted).not.toHaveBeenCalled();
+    expect(repository.delete).not.toHaveBeenCalled();
+  },
+);
+it('deletes a single task by ID without clearing completed tasks', async () => {
+  const { app, repository } = setup();
+  repository.delete.mockResolvedValue(true);
+  const response = await request(app).delete('/api/todos/5?completed=true');
+  expect(response.status).toBe(204);
+  expect(repository.delete).toHaveBeenCalledWith(5);
+  expect(repository.deleteCompleted).not.toHaveBeenCalled();
+});
 
 it('gets a task by its numeric ID', async () => {
   const { app, repository } = setup();
