@@ -7,6 +7,7 @@ import { TodoEditor } from './components/TodoEditor'
 import { TodoFilters } from './components/TodoFilters'
 import { TodoList } from './components/TodoList'
 import { TodosHeader } from './components/TodosHeader'
+import { useClearCompletedMutation } from './hooks/useClearCompletedMutation'
 import { useTodoFilters } from './hooks/useTodoFilters'
 import { useTodosBusy } from './hooks/useTodosBusy'
 import { useTodosQuery } from './hooks/useTodosQuery'
@@ -18,11 +19,13 @@ export function TodosPage() {
   const todos = todosQuery.data ?? []
   const filters = useTodoFilters(todos)
   const toggleTodo = useUpdateTodoMutation()
+  const clearCompleted = useClearCompletedMutation()
   const busy = useTodosBusy()
   const { message, notify } = useNotice()
   const [editor, setEditor] = useState<Todo | 'new' | null>(null)
   const [deleting, setDeleting] = useState<Todo | null>(null)
-  const error = toggleTodo.error ?? todosQuery.error
+  const completedCount = todos.filter((todo) => todo.completed).length
+  const error = toggleTodo.error ?? clearCompleted.error ?? todosQuery.error
 
   async function toggle(todo: Todo) {
     if (busy) return
@@ -40,8 +43,22 @@ export function TodosPage() {
       // Display the mutation error in the page alert.
     }
   }
+  async function clear() {
+    if (busy) return
+    try {
+      const { deleted } = await clearCompleted.mutateAsync()
+      notify(
+        deleted === 1
+          ? 'Cleared 1 completed task.'
+          : `Cleared ${deleted} completed tasks.`,
+      )
+    } catch {
+      // Display the mutation error in the page alert.
+    }
+  }
   async function retry() {
     toggleTodo.reset()
+    clearCompleted.reset()
     await todosQuery.refetch()
   }
 
@@ -50,7 +67,9 @@ export function TodosPage() {
       <main id="main" className="page-layout">
         <TodosHeader
           disabled={todosQuery.isPending || busy}
+          completedCount={completedCount}
           onCreate={() => setEditor('new')}
+          onClearCompleted={() => void clear()}
         />
         <TodoFilters
           filter={filters.filter}

@@ -20,6 +20,7 @@ export const updateSchema = z.strictObject(fields).partial().refine(
   'Provide at least one field to update.',
 );
 export const idSchema = z.coerce.number().int().positive().max(Number.MAX_SAFE_INTEGER);
+export const clearQuerySchema = z.strictObject({ completed: z.literal('true') });
 export const todoSchema = createSchema.extend({
   id: z.number().int().positive(),
   created_at: z.iso.datetime({ offset: true }),
