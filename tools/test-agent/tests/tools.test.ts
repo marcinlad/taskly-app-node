@@ -3,7 +3,7 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { PACKAGES } from '../src/config.ts';
 import type { Sandbox } from '../src/process.ts';
-import { countSkipMarkers, countTestCases, createSessionState, createTools, MAX_TEST_RUNS, MAX_WRITE_BYTES, MAX_WRITES, TRIAGE_HINT, type SessionContext } from '../src/tools.ts';
+import { countSkipMarkers, countTestCases, createTools, MAX_TEST_RUNS, MAX_WRITE_BYTES, MAX_WRITES, TRIAGE_HINT, type SessionContext } from '../src/tools.ts';
 import { tempRepo } from './helpers.ts';
 
 const existingTest = "import { it } from 'vitest';\nit('one', () => {});\nit.each([1, 2])('two %s', () => {});\n";
@@ -23,8 +23,7 @@ async function setup(mode: 'pr' | 'coverage' = 'coverage') {
     skills: new Map([['backend-vitest', { name: 'backend-vitest', description: 'Backend conventions', body: 'Use supertest.' }]]),
     onEvent: vi.fn(),
   };
-  const state = createSessionState();
-  const tools = createTools(ctx, state);
+  const { tools, state } = createTools(ctx);
   const call = (name: string, input: unknown) => { const tool = tools.find((t) => t.name === name) as any; return tool.run(tool.parse ? tool.parse(input) : input); };
   return { repoRoot, ctx, state, tools, call, sandbox };
 }
@@ -84,7 +83,7 @@ describe('write_test_file', () => {
     const { call, state, repoRoot } = await setup();
     expect(await call('write_test_file', { path: 'backend/tests/factory.test.ts', content: existingTest })).toContain('2 test cases');
     expect(await readFile(path.join(repoRoot, 'backend/tests/factory.test.ts'), 'utf8')).toBe(existingTest);
-    expect(state.writes.get('backend/tests/factory.test.ts')).toEqual({ original: null, writes: 1 });
+    expect(state.writes.get('backend/tests/factory.test.ts')).toEqual({ original: null });
   });
 
   it.each([
@@ -101,7 +100,7 @@ describe('write_test_file', () => {
     const extended = `${existingTest}it('three', () => {});\n`;
     await call('write_test_file', { path: 'backend/tests/router.test.ts', content: extended });
     await call('write_test_file', { path: 'backend/tests/router.test.ts', content: extended });
-    expect(state.writes.get('backend/tests/router.test.ts')).toEqual({ original: existingTest, writes: 2 });
+    expect(state.writes.get('backend/tests/router.test.ts')).toEqual({ original: existingTest });
     await expect(call('write_test_file', { path: 'backend/tests/router.test.ts', content: "it('one', () => {});" }))
       .rejects.toThrow('had 2 test cases and the new content has 1');
   });

@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { PACKAGES, SKILLS_DIR, type ModelSettings, type PackageName, type SandboxMode } from './config.ts';
 import type { FileCoverage } from './coverage.ts';
-import { emptyUsage, runSession, type SessionResult, type TranscriptEvent, type Usage } from './agent.ts';
+import { addUsage, emptyUsage, runSession, type TranscriptEvent, type Usage } from './agent.ts';
 import { changedFiles, fileDiff, isGitRepository } from './git.ts';
 import { planFromChanges, planFromCoverage, targetsByPackage, type Plan, type Target } from './planner.ts';
 import { packageOf } from './paths.ts';
@@ -62,6 +62,13 @@ export async function run(options: RunOptions): Promise<RunResult> {
   const skills = await loadSkills(SKILLS_DIR);
 
   const coverageBefore = new Map<PackageName, Record<string, FileCoverage>>();
+  async function measureBaseline(name: PackageName) {
+    log(`Measuring baseline coverage of ${name}…`);
+    const baseline = await runVitest(repoRoot, PACKAGES[name], sandbox, { files: [], coverage: true });
+    if (baseline.coverage) coverageBefore.set(name, baseline.coverage);
+    return baseline;
+  }
+
   let plan: Plan;
   const diffs = new Map<string, string>();
   if (options.mode === 'pr') {
@@ -79,10 +86,8 @@ export async function run(options: RunOptions): Promise<RunResult> {
     log(`Plan: ${plan.targets.length} target(s), ${plan.skipped.length} skipped of ${changes.length} changed file(s).`);
   } else {
     for (const name of options.packages) {
-      log(`Measuring baseline coverage of ${name}…`);
-      const result = await runVitest(repoRoot, PACKAGES[name], sandbox, { files: [], coverage: true });
-      if (!result.coverage) throw new Error(`Could not measure ${name} coverage: ${result.error ?? 'no coverage report'}`);
-      coverageBefore.set(name, result.coverage);
+      const baseline = await measureBaseline(name);
+      if (!baseline.coverage) throw new Error(`Could not measure ${name} coverage: ${baseline.error ?? 'no coverage report'}`);
     }
     plan = await planFromCoverage(repoRoot, coverageBefore, { threshold: options.threshold, maxTargetsPerPackage: maxTargets, only: options.only });
     log(`Plan: ${plan.targets.length} target(s) below ${options.threshold}% coverage.`);
@@ -111,11 +116,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
   const client = new Anthropic({ maxRetries: 4 });
   for (const [name, targets] of groups) {
     const pkg = PACKAGES[name];
-    if (!coverageBefore.has(name)) {
-      log(`Measuring baseline coverage of ${name}…`);
-      const baseline = await runVitest(repoRoot, pkg, sandbox, { files: [], coverage: true });
-      if (baseline.coverage) coverageBefore.set(name, baseline.coverage);
-    }
+    if (!coverageBefore.has(name)) await measureBaseline(name);
     log(`Agent session: ${name} (${targets.length} target(s))`);
     const session = await runSession(
       client,
@@ -124,7 +125,8 @@ export async function run(options: RunOptions): Promise<RunResult> {
       plan.changedTests.filter((file) => file.startsWith(`${pkg.dir}/`)),
       log,
     );
-    mergeSession(result, session);
+    addUsage(result.usage, session.usage);
+    result.transcript.push(...session.transcript);
     log(`Verifying ${session.state.writes.size} file(s) written by the agent…`);
     const verification = await verifyPackage(repoRoot, pkg, sandbox, session.state.writes, log);
     result.keptFiles.push(...verification.files.filter((f) => f.kept).map((f) => f.path));
@@ -146,12 +148,4 @@ export async function run(options: RunOptions): Promise<RunResult> {
 
   result.durationMs = Date.now() - started;
   return result;
-}
-
-function mergeSession(result: RunResult, session: SessionResult): void {
-  result.usage.inputTokens += session.usage.inputTokens;
-  result.usage.outputTokens += session.usage.outputTokens;
-  result.usage.cacheReadTokens += session.usage.cacheReadTokens;
-  result.usage.cacheWriteTokens += session.usage.cacheWriteTokens;
-  result.transcript.push(...session.transcript);
 }

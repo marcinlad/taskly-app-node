@@ -72,9 +72,12 @@ it('runs the tool loop to an accepted report and totals usage', async () => {
     output_config: { effort: 'high' }, fallbacks: 'default', cache_control: { type: 'ephemeral' },
   });
   expect(params.system).toContain('- backend-vitest: Backend conventions');
-  expect((params.tools as Array<{ name: string }>).map((t) => t.name)).toEqual([
+  const tools = params.tools as Array<{ name: string; strict?: boolean; eager_input_streaming?: boolean }>;
+  expect(tools.map((t) => t.name)).toEqual([
     'list_files', 'read_file', 'search_code', 'load_skill', 'write_test_file', 'run_tests', 'get_coverage', 'submit_report',
   ]);
+  expect(tools.filter((t) => 'strict' in t).map((t) => t.name)).toEqual(['submit_report']);
+  expect(tools.filter((t) => 'eager_input_streaming' in t).map((t) => t.name)).toEqual(['write_test_file']);
   expect(result.transcript.filter((e) => e.type === 'assistant')).toHaveLength(2);
 });
 

@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { SHARED_SKILLS, type ModelSettings } from './config.ts';
+import type { ModelSettings } from './config.ts';
 import { REPORT_REMINDER, systemPrompt, taskMessage } from './prompt.ts';
-import { createSessionState, createTools, type AgentReport, type SessionContext, type SessionState, type ToolEvent } from './tools.ts';
+import { createTools, type AgentReport, type SessionContext, type SessionState, type ToolEvent } from './tools.ts';
 
 export const MAX_TURNS = 60;
 const SESSION_TIMEOUT_MS = 20 * 60_000;
@@ -13,9 +13,9 @@ export interface Usage {
   cacheWriteTokens: number;
 }
 
-export type TranscriptEvent =
-  | { type: 'assistant'; package: string; iteration: number; model: string; stopReason: string | null; text: string; thinking: string; toolCalls: string[] }
-  | ({ type: 'tool'; package: string } & ToolEvent);
+type AssistantEvent = { type: 'assistant'; package: string; iteration: number; model: string; stopReason: string | null; text: string; thinking: string; toolCalls: string[] };
+
+export type TranscriptEvent = AssistantEvent | ({ type: 'tool'; package: string } & ToolEvent);
 
 export interface SessionResult {
   package: string;
@@ -31,11 +31,8 @@ export function emptyUsage(): Usage {
   return { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
 }
 
-export function addUsage(total: Usage, usage: Anthropic.Beta.BetaUsage): void {
-  total.inputTokens += usage.input_tokens;
-  total.outputTokens += usage.output_tokens;
-  total.cacheReadTokens += usage.cache_read_input_tokens ?? 0;
-  total.cacheWriteTokens += usage.cache_creation_input_tokens ?? 0;
+export function addUsage(total: Usage, usage: Usage): void {
+  for (const key of Object.keys(total) as Array<keyof Usage>) total[key] += usage[key];
 }
 
 export async function runSession(
@@ -45,20 +42,15 @@ export async function runSession(
   changedTests: string[],
   log: (line: string) => void = () => {},
 ): Promise<SessionResult> {
-  const state = createSessionState();
   const transcript: TranscriptEvent[] = [];
   const usage = emptyUsage();
-  const tools = createTools(
-    {
-      ...ctx,
-      onEvent: (event) => {
-        transcript.push({ type: 'tool', package: ctx.pkg.name, ...event });
-        log(`  ${event.ok ? '✓' : '✗'} ${event.tool} ${JSON.stringify(event.input)}`);
-      },
+  const { tools, state } = createTools({
+    ...ctx,
+    onEvent: (event) => {
+      transcript.push({ type: 'tool', package: ctx.pkg.name, ...event });
+      log(`  ${event.ok ? '✓' : '✗'} ${event.tool} ${JSON.stringify(event.input)}`);
     },
-    state,
-  );
-  const recommended = [...SHARED_SKILLS, ...(ctx.mode === 'pr' ? ['pr-change-analysis'] : []), ...ctx.pkg.skills];
+  });
 
   const runner = client.beta.messages.toolRunner(
     {
@@ -74,7 +66,7 @@ export async function runSession(
       // On a safety decline, the API reruns the turn on a fallback model instead of failing the run.
       betas: ['server-side-fallback-2026-07-01'],
       fallbacks: 'default',
-      system: systemPrompt(ctx.pkg, ctx.mode, [...ctx.skills.values()], recommended),
+      system: systemPrompt(ctx.pkg, ctx.mode, [...ctx.skills.values()]),
       tools,
       messages: [{ role: 'user', content: taskMessage(ctx.mode, ctx.targets, changedTests) }],
     },
@@ -88,10 +80,15 @@ export async function runSession(
     for await (const stream of runner) {
       const message = await stream.finalMessage();
       iterations += 1;
-      addUsage(usage, message.usage);
-      transcript.push(assistantEvent(ctx.pkg.name, iterations, message));
-      const toolCalls = message.content.filter((block) => block.type === 'tool_use').map((block) => block.name);
-      log(`[${ctx.pkg.name}] turn ${iterations}: ${message.stop_reason}${toolCalls.length ? ` → ${toolCalls.join(', ')}` : ''}`);
+      addUsage(usage, {
+        inputTokens: message.usage.input_tokens,
+        outputTokens: message.usage.output_tokens,
+        cacheReadTokens: message.usage.cache_read_input_tokens ?? 0,
+        cacheWriteTokens: message.usage.cache_creation_input_tokens ?? 0,
+      });
+      const event = assistantEvent(ctx.pkg.name, iterations, message);
+      transcript.push(event);
+      log(`[${ctx.pkg.name}] turn ${iterations}: ${message.stop_reason}${event.toolCalls.length ? ` → ${event.toolCalls.join(', ')}` : ''}`);
 
       if (message.stop_reason === 'refusal') {
         error = `The model declined to continue (${message.stop_details?.category ?? 'no category'}).`;
@@ -107,17 +104,16 @@ export async function runSession(
         runner.pushMessages({ role: 'assistant', content: message.content }, { role: 'user', content: REPORT_REMINDER });
       }
     }
-    if (!error && iterations >= MAX_TURNS && !state.report) {
-      error = `Stopped at the limit of ${MAX_TURNS} turns.`;
-    }
   } catch (caught) {
     error = describeError(caught, SESSION_TIMEOUT_MS);
   }
-  if (!error && !state.report) error = 'The agent finished without an accepted report.';
+  if (!error && !state.report) {
+    error = iterations >= MAX_TURNS ? `Stopped at the limit of ${MAX_TURNS} turns.` : 'The agent finished without an accepted report.';
+  }
   return { package: ctx.pkg.name, report: state.report, state, transcript, usage, iterations, error };
 }
 
-function assistantEvent(pkg: string, iteration: number, message: Anthropic.Beta.BetaMessage): TranscriptEvent {
+function assistantEvent(pkg: string, iteration: number, message: Anthropic.Beta.BetaMessage): AssistantEvent {
   let text = '';
   let thinking = '';
   const toolCalls: string[] = [];

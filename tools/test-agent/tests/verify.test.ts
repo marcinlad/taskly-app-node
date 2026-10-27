@@ -52,11 +52,11 @@ it('keeps passing files and reverts failing, flaky and ill-typed ones', async ()
     'backend/tests/typed.test.ts': 'new',
   });
   const writes = new Map([
-    ['backend/tests/existing.test.ts', { original: 'original', writes: 1 }],
-    ['backend/tests/good.test.ts', { original: null, writes: 1 }],
-    ['backend/tests/bad.test.ts', { original: null, writes: 1 }],
-    ['backend/tests/flaky.test.ts', { original: null, writes: 2 }],
-    ['backend/tests/typed.test.ts', { original: null, writes: 1 }],
+    ['backend/tests/existing.test.ts', { original: 'original' }],
+    ['backend/tests/good.test.ts', { original: null }],
+    ['backend/tests/bad.test.ts', { original: null }],
+    ['backend/tests/flaky.test.ts', { original: null }],
+    ['backend/tests/typed.test.ts', { original: null }],
   ]);
   await writeFile(path.join(root, 'backend/tests/existing.test.ts'), 'updated by agent');
   const sandbox = fakeSandbox(root, {
@@ -84,8 +84,8 @@ it('keeps passing files and reverts failing, flaky and ill-typed ones', async ()
 it('reverts agent files that fail only in the full suite and reports failures elsewhere', async () => {
   const root = await tempRepo({ 'backend/tests/other.test.ts': '', 'backend/tests/good.test.ts': '', 'backend/tests/suite-only.test.ts': '' });
   const writes = new Map([
-    ['backend/tests/good.test.ts', { original: null, writes: 1 }],
-    ['backend/tests/suite-only.test.ts', { original: null, writes: 1 }],
+    ['backend/tests/good.test.ts', { original: null }],
+    ['backend/tests/suite-only.test.ts', { original: null }],
   ]);
   // Isolated runs pass; in full-suite runs suite-only.test.ts fails, and other.test.ts (not the agent's) is already broken.
   const isolated = fakeSandbox(root, {});
@@ -112,8 +112,8 @@ describe('steps that cannot run revert every file still kept', () => {
   async function setup() {
     const root = await tempRepo({ 'backend/tests/a.test.ts': '', 'backend/tests/b.test.ts': '', 'backend/tests/other.test.ts': '' });
     const writes = new Map([
-      ['backend/tests/a.test.ts', { original: null, writes: 1 }],
-      ['backend/tests/b.test.ts', { original: null, writes: 1 }],
+      ['backend/tests/a.test.ts', { original: null }],
+      ['backend/tests/b.test.ts', { original: null }],
     ]);
     return { root, writes };
   }
@@ -174,7 +174,7 @@ it('keeps agent files and reports global tsc errors when other files were checke
     tscOutput: "error TS2688: Cannot find type definition file for 'node'.\nsrc/legacy.ts(3,7): error TS2322: Type 'string' is not assignable to type 'number'.\n",
   });
 
-  const result = await verifyPackage(root, PACKAGES.backend, sandbox, new Map([['backend/tests/a.test.ts', { original: null, writes: 1 }]]));
+  const result = await verifyPackage(root, PACKAGES.backend, sandbox, new Map([['backend/tests/a.test.ts', { original: null }]]));
 
   expect(result.files).toEqual([{ path: 'backend/tests/a.test.ts', kept: true, passedRuns: 3 }]);
   expect(result.typecheck).toEqual({ ok: false, agentErrors: [], otherErrors: 2, failure: undefined });
@@ -184,7 +184,7 @@ it('keeps agent files when tsc reports errors only in other files', async () => 
   const root = await tempRepo({ 'backend/tests/a.test.ts': '' });
   const sandbox = fakeSandbox(root, { tscOutput: "src/legacy.ts(3,7): error TS2322: Type 'string' is not assignable to type 'number'.\n" });
 
-  const result = await verifyPackage(root, PACKAGES.backend, sandbox, new Map([['backend/tests/a.test.ts', { original: null, writes: 1 }]]));
+  const result = await verifyPackage(root, PACKAGES.backend, sandbox, new Map([['backend/tests/a.test.ts', { original: null }]]));
 
   expect(result.files).toEqual([{ path: 'backend/tests/a.test.ts', kept: true, passedRuns: 3 }]);
   expect(result.typecheck).toEqual({ ok: false, agentErrors: [], otherErrors: 1, failure: undefined });
@@ -201,7 +201,7 @@ it('reverts a file whose run passes every test but fails on an unhandled rejecti
     }),
   };
 
-  const result = await verifyPackage(root, PACKAGES.backend, sandbox, new Map([['backend/tests/a.test.ts', { original: null, writes: 1 }]]));
+  const result = await verifyPackage(root, PACKAGES.backend, sandbox, new Map([['backend/tests/a.test.ts', { original: null }]]));
 
   expect(result.files[0]).toMatchObject({ kept: false, passedRuns: 0 });
   expect(result.files[0].reason).toMatch(/^failed: Unhandled errors during the run fail it even though the tests passed:\nUnhandled Errors/);
@@ -212,8 +212,8 @@ it('reverts a file in which no test passed because all are skipped or todo', asy
   const sandbox = fakeSandbox(root, { skippedOnly: ['tests/a.test.ts'] });
 
   const result = await verifyPackage(root, PACKAGES.backend, sandbox, new Map([
-    ['backend/tests/a.test.ts', { original: null, writes: 1 }],
-    ['backend/tests/b.test.ts', { original: null, writes: 1 }],
+    ['backend/tests/a.test.ts', { original: null }],
+    ['backend/tests/b.test.ts', { original: null }],
   ]));
 
   expect(result.files).toEqual([

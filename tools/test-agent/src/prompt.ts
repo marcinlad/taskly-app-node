@@ -1,10 +1,11 @@
-import type { PackageConfig } from './config.ts';
+import { SHARED_SKILLS, type PackageConfig } from './config.ts';
 import { formatCoverage } from './coverage.ts';
 import type { Target } from './planner.ts';
 import { skillIndex, type Skill } from './skills.ts';
 
 // No per-run values here, so the prompt stays cacheable across runs.
-export function systemPrompt(pkg: PackageConfig, mode: 'pr' | 'coverage', skills: Skill[], recommended: string[]): string {
+export function systemPrompt(pkg: PackageConfig, mode: 'pr' | 'coverage', skills: Skill[]): string {
+  const recommended = [...SHARED_SKILLS, ...(mode === 'pr' ? ['pr-change-analysis'] : []), ...pkg.skills];
   const goal =
     mode === 'pr'
       ? 'A pull request changed the target files. Decide for each one whether unit tests should be created, updated or skipped, and do it.'

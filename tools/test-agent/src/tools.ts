@@ -32,7 +32,6 @@ export interface SessionContext {
 
 export interface WriteRecord {
   original: string | null;
-  writes: number;
 }
 
 export const ReportSchema = z.object({
@@ -55,7 +54,6 @@ export interface SessionState {
   writes: Map<string, WriteRecord>;
   skillsUsed: string[];
   testRuns: number;
-  lastTestRun: TestRunResult | null;
   report: AgentReport | null;
 }
 
@@ -81,36 +79,31 @@ export function countSkipMarkers(source: string): number {
   return source.match(SKIP_MARKER)?.length ?? 0;
 }
 
-export function createSessionState(): SessionState {
-  return { writes: new Map(), skillsUsed: [], testRuns: 0, lastTestRun: null, report: null };
-}
-
-export function createTools(ctx: SessionContext, state: SessionState) {
+export function createTools(ctx: SessionContext) {
   const { repoRoot, pkg } = ctx;
+  const state: SessionState = { writes: new Map(), skillsUsed: [], testRuns: 0, report: null };
 
-  function define<Schema extends z.ZodType>(spec: {
+  // Extra fields (strict, eager_input_streaming) go to the API as given.
+  function define<Schema extends z.ZodType>({ run, ...definition }: {
     name: string;
     description: string;
     inputSchema: Schema;
     strict?: boolean;
-    eager?: boolean;
+    eager_input_streaming?: boolean;
     run: (input: z.infer<Schema>) => Promise<string>;
   }) {
     return betaZodTool({
-      name: spec.name,
-      description: spec.description,
-      inputSchema: spec.inputSchema,
-      ...(spec.strict ? { strict: true } : {}),
-      ...(spec.eager ? { eager_input_streaming: true } : {}),
+      ...definition,
       run: async (input) => {
         const started = Date.now();
+        const report = (ok: boolean, output: string) =>
+          ctx.onEvent?.({ tool: definition.name, input: loggable(input), ok, output, durationMs: Date.now() - started });
         try {
-          const output = await spec.run(input);
-          ctx.onEvent?.({ tool: spec.name, input: loggable(input), ok: true, output, durationMs: Date.now() - started });
+          const output = await run(input);
+          report(true, output);
           return output;
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          ctx.onEvent?.({ tool: spec.name, input: loggable(input), ok: false, output: message, durationMs: Date.now() - started });
+          report(false, error instanceof Error ? error.message : String(error));
           throw error;
         }
       },
@@ -129,9 +122,7 @@ export function createTools(ctx: SessionContext, state: SessionState) {
       throw new Error(`Test run limit (${MAX_TEST_RUNS}) reached. Stop iterating and call submit_report with the current status.`);
     }
     state.testRuns += 1;
-    const result = await runVitest(repoRoot, pkg, ctx.sandbox, { files, coverage });
-    state.lastTestRun = result;
-    return result;
+    return runVitest(repoRoot, pkg, ctx.sandbox, { files, coverage });
   }
 
   const listFiles = define({
@@ -227,7 +218,7 @@ export function createTools(ctx: SessionContext, state: SessionState) {
       path: z.string().describe('Test file path relative to the repository root.'),
       content: z.string().describe('The complete new content of the file.'),
     }),
-    eager: true,
+    eager_input_streaming: true,
     run: async ({ path: file, content }) => {
       const rel = normalizeRepoPath(file);
       if (rel === null || !isTestFile(rel, pkg)) {
@@ -237,8 +228,8 @@ export function createTools(ctx: SessionContext, state: SessionState) {
       const record = state.writes.get(rel);
       if (!record && state.writes.size >= MAX_WRITES) throw new Error(`Refused: the limit of ${MAX_WRITES} written files is reached.`);
       const absolute = await resolveInsideRoot(repoRoot, rel);
-      const existing = await readFile(absolute, 'utf8').catch(() => null);
-      const original = record ? record.original : existing;
+      // The content before the first write of this session, so later rewrites are checked against it.
+      const original = record ? record.original : await readFile(absolute, 'utf8').catch(() => null);
       if (original !== null && countTestCases(content) < countTestCases(original)) {
         throw new Error(
           `Refused: ${rel} had ${countTestCases(original)} test cases and the new content has ${countTestCases(content)}. ` +
@@ -250,7 +241,7 @@ export function createTools(ctx: SessionContext, state: SessionState) {
       }
       await mkdir(path.dirname(absolute), { recursive: true });
       await writeFile(absolute, content, 'utf8');
-      state.writes.set(rel, { original, writes: (record?.writes ?? 0) + 1 });
+      state.writes.set(rel, { original });
       return `Wrote ${rel} (${content.split('\n').length} lines, ${countTestCases(content)} test cases). Run it with run_tests.`;
     },
   });
@@ -311,8 +302,11 @@ export function createTools(ctx: SessionContext, state: SessionState) {
     },
   });
 
-  const tools = [listFiles, readFileTool, searchCode, loadSkill, writeTestFile, runTests, getCoverage, submitReport];
-  return ctx.mode === 'pr' ? [...tools.slice(0, 3), getDiff, ...tools.slice(3)] : tools;
+  const tools = [
+    listFiles, readFileTool, searchCode, ...(ctx.mode === 'pr' ? [getDiff] : []),
+    loadSkill, writeTestFile, runTests, getCoverage, submitReport,
+  ];
+  return { tools, state };
 }
 
 export function formatTestRun(result: TestRunResult, maxChars: number): string {
