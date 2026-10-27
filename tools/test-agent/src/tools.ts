@@ -9,6 +9,7 @@ import { isReadable, isTestFile, normalizeRepoPath, resolveInsideRoot } from './
 import type { Target } from './planner.ts';
 import { truncate, type Sandbox } from './process.ts';
 import type { Skill } from './skills.ts';
+import { runTypecheck } from './verify.ts';
 import { runVitest, type TestRunResult } from './vitest.ts';
 
 export interface ToolEvent {
@@ -42,7 +43,7 @@ export const ReportSchema = z.object({
       decision: z.enum(['create', 'update', 'skip']),
       reason: z.string().describe('Why this decision; for skip, why no unit test is warranted.'),
       testFiles: z.array(z.string()).describe('Test files you created or updated for this source file.'),
-      status: z.enum(['passing', 'failing', 'not_run']).describe('Result of the last run_tests call covering these test files.'),
+      status: z.enum(['passing', 'failing', 'not_run']).describe('Result of the last run_tests call covering these test files; type errors in them count as failing.'),
       suspectedBugs: z.array(z.string()).describe('Behavior in the source that looks wrong, with file and line. Empty if none.'),
     }),
   ),
@@ -123,6 +124,17 @@ export function createTools(ctx: SessionContext) {
     }
     state.testRuns += 1;
     return runVitest(repoRoot, pkg, ctx.sandbox, { files, coverage });
+  }
+
+  async function typeErrorsIn(files: string[]): Promise<string> {
+    const { errors, failure } = await runTypecheck(repoRoot, pkg, ctx.sandbox);
+    if (failure) return `TYPECHECK could not run: ${failure}`;
+    const own = errors.filter((line) => files.some((file) => line.startsWith(`${file}(`)));
+    if (own.length === 0) return 'TYPECHECK: no type errors in these files.';
+    return truncate(
+      `TYPECHECK: ${own.length} type error(s) in these files. Verification reverts a test file with type errors even when its tests pass, so fix them.\n${own.join('\n')}`,
+      4_000,
+    );
   }
 
   const listFiles = define({
@@ -248,7 +260,7 @@ export function createTools(ctx: SessionContext) {
 
   const runTests = define({
     name: 'run_tests',
-    description: `Run specific test files of the ${pkg.name} package with Vitest and get pass/fail details. Limited to ${MAX_TEST_RUNS} runs per session (shared with get_coverage).`,
+    description: `Run specific test files of the ${pkg.name} package with Vitest and get pass/fail details, then type-check the package and get the type errors in those files. Limited to ${MAX_TEST_RUNS} runs per session (shared with get_coverage).`,
     inputSchema: z.object({ files: z.array(z.string()).min(1).describe('Test files relative to the repository root.') }),
     run: async ({ files }) => {
       const rels = files.map((file) => {
@@ -257,7 +269,8 @@ export function createTools(ctx: SessionContext) {
         return rel;
       });
       const result = await runTestsCounted(rels, false);
-      const output = formatTestRun(result, MAX_OUTPUT_CHARS);
+      // Vitest strips types without checking them; verification type-checks, so report type errors while they can be fixed.
+      const output = `${formatTestRun(result, MAX_OUTPUT_CHARS)}\n\n${await typeErrorsIn(rels)}`;
       // Skills are loaded up front; this points to the triage skill at the moment it is needed.
       return result.ok || state.skillsUsed.includes('failure-triage') ? output : `${output}\n\n${TRIAGE_HINT}`;
     },
