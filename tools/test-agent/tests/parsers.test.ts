@@ -75,9 +75,10 @@ describe('vitest report', () => {
 });
 
 it('parses tsc errors into repository paths', () => {
-  const output = "tests/a.test.ts(3,7): error TS2322: Type 'string' is not assignable to type 'number'.\n  Detail line\nsrc/b.ts(1,1): error TS1005: ';' expected.\nFound 2 errors.";
+  const output = "tests/a.test.ts(3,7): error TS2322: Type 'string' is not assignable to type 'number'.\n  Detail line\nsrc/b.ts(1,1): error TS1005: ';' expected.\nerror TS2688: Cannot find type definition file for 'node'.\nFound 3 errors.";
   expect(parseTscOutput(output, 'backend')).toEqual([
     "backend/tests/a.test.ts(3,7): error TS2322: Type 'string' is not assignable to type 'number'.",
     "backend/src/b.ts(1,1): error TS1005: ';' expected.",
+    "backend: error TS2688: Cannot find type definition file for 'node'.",
   ]);
 });

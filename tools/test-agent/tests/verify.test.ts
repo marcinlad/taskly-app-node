@@ -165,6 +165,18 @@ describe('steps that cannot run revert every file still kept', () => {
   });
 });
 
+it('keeps agent files and reports global tsc errors when other files were checked', async () => {
+  const root = await tempRepo({ 'backend/tests/a.test.ts': '' });
+  const sandbox = fakeSandbox(root, {
+    tscOutput: "error TS2688: Cannot find type definition file for 'node'.\nsrc/legacy.ts(3,7): error TS2322: Type 'string' is not assignable to type 'number'.\n",
+  });
+
+  const result = await verifyPackage(root, PACKAGES.backend, sandbox, new Map([['backend/tests/a.test.ts', { original: null, writes: 1 }]]));
+
+  expect(result.files).toEqual([{ path: 'backend/tests/a.test.ts', kept: true, passedRuns: 3 }]);
+  expect(result.typecheck).toEqual({ ok: false, agentErrors: [], otherErrors: 2, failure: undefined });
+});
+
 it('keeps agent files when tsc reports errors only in other files', async () => {
   const root = await tempRepo({ 'backend/tests/a.test.ts': '' });
   const sandbox = fakeSandbox(root, { tscOutput: "src/legacy.ts(3,7): error TS2322: Type 'string' is not assignable to type 'number'.\n" });

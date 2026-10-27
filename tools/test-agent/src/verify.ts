@@ -118,17 +118,23 @@ export async function runTypecheck(repoRoot: string, pkg: PackageConfig, sandbox
   const result = await sandbox.run(pkg.dir, ['tsc', '--noEmit', '--pretty', 'false']);
   if (result.timedOut) return { errors: [], failure: 'tsc timed out' };
   const errors = parseTscOutput(stripAnsi(result.stdout), pkg.dir);
-  // A failing tsc without per-file errors (a crash, a config error) checked nothing.
-  if (result.exitCode !== 0 && errors.length === 0) {
+  // A failing tsc without per-file errors (a crash, a config error) may have checked nothing.
+  if (result.exitCode !== 0 && !errors.some((line) => FILE_DIAGNOSTIC.test(line))) {
     const output = stripAnsi(`${result.stdout}\n${result.stderr}`).trim().split('\n').filter(Boolean);
     return { errors, failure: `tsc exited with code ${result.exitCode}${output.length ? `: ${output.at(-1)!.slice(0, 300)}` : ''}` };
   }
   return { errors };
 }
 
+const FILE_DIAGNOSTIC = /^[^\s(][^(]*\(\d+,\d+\): error TS\d+/;
+const GLOBAL_DIAGNOSTIC = /^error TS\d+:/;
+
+// File diagnostics become `<package>/<file>(line,col): …`; global ones (e.g. a missing type library) `<package>: error …`.
 export function parseTscOutput(output: string, packageDir: string): string[] {
-  return output
-    .split('\n')
-    .filter((line) => /^[^\s(][^(]*\(\d+,\d+\): error TS\d+/.test(line))
-    .map((line) => `${path.posix.join(packageDir, line.trim())}`);
+  return output.split('\n').flatMap((raw) => {
+    const line = raw.trim();
+    if (FILE_DIAGNOSTIC.test(line)) return [path.posix.join(packageDir, line)];
+    if (GLOBAL_DIAGNOSTIC.test(line)) return [`${packageDir}: ${line}`];
+    return [];
+  });
 }
