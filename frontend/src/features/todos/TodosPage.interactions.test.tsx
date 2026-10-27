@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { useNotice } from '../../hooks/useNotice'
 import { todoFixture } from '../../test/todoFixture'
+import { useClearCompletedMutation } from './hooks/useClearCompletedMutation'
 import { useTodoFilters } from './hooks/useTodoFilters'
 import { useTodosBusy } from './hooks/useTodosBusy'
 import { useTodosQuery } from './hooks/useTodosQuery'
@@ -15,6 +16,9 @@ import { TodosPage } from './TodosPage'
 // (toggle, editor and delete dialog state, notices) can be exercised.
 vi.mock('../../design-system', () => import('../../design-system/mocks'))
 vi.mock('../../hooks/useNotice', () => ({ useNotice: vi.fn() }))
+vi.mock('./hooks/useClearCompletedMutation', () => ({
+  useClearCompletedMutation: vi.fn(),
+}))
 vi.mock('./hooks/useTodoFilters', () => ({ useTodoFilters: vi.fn() }))
 vi.mock('./hooks/useTodosBusy', () => ({ useTodosBusy: vi.fn() }))
 vi.mock('./hooks/useTodosQuery', () => ({ useTodosQuery: vi.fn() }))
@@ -24,14 +28,23 @@ vi.mock('./hooks/useUpdateTodoMutation', () => ({
 vi.mock('./components/TodosHeader', () => ({
   TodosHeader: ({
     disabled,
+    completedCount,
     onCreate,
+    onClearCompleted,
   }: {
     disabled: boolean
+    completedCount: number
     onCreate: () => void
+    onClearCompleted: () => void
   }) => (
-    <button disabled={disabled} onClick={onCreate}>
-      New task
-    </button>
+    <>
+      <button disabled={disabled} onClick={onCreate}>
+        New task
+      </button>
+      <button disabled={disabled} onClick={onClearCompleted}>
+        Clear completed ({completedCount})
+      </button>
+    </>
   ),
 }))
 vi.mock('./components/TodoFilters', () => ({ TodoFilters: () => null }))
@@ -110,6 +123,8 @@ function setup({
   queryError = null as Error | null,
   mutationError = null as Error | null,
   mutateAsync = vi.fn(),
+  clearError = null as Error | null,
+  clearMutateAsync = vi.fn(),
 } = {}) {
   const notify = vi.fn()
   vi.mocked(useTodosQuery).mockReturnValue({
@@ -125,6 +140,11 @@ function setup({
     reset: vi.fn(),
     mutateAsync,
   } as unknown as ReturnType<typeof useUpdateTodoMutation>)
+  vi.mocked(useClearCompletedMutation).mockReturnValue({
+    error: clearError,
+    reset: vi.fn(),
+    mutateAsync: clearMutateAsync,
+  } as unknown as ReturnType<typeof useClearCompletedMutation>)
   vi.mocked(useTodosBusy).mockReturnValue(busy)
   vi.mocked(useNotice).mockReturnValue({ message: '', notify })
   vi.mocked(useTodoFilters).mockReturnValue({
@@ -137,7 +157,7 @@ function setup({
     setSort: vi.fn(),
   })
   render(<TodosPage />)
-  return { user: userEvent.setup(), notify, mutateAsync }
+  return { user: userEvent.setup(), notify, mutateAsync, clearMutateAsync }
 }
 
 it('treats a list that has not loaded yet as having no tasks', () => {
@@ -269,4 +289,92 @@ it('closes the delete confirmation and notifies after deleting', async () => {
   await user.click(screen.getByRole('button', { name: 'Confirm deletion' }))
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   expect(notify).toHaveBeenCalledWith('Task deleted.')
+})
+
+it('passes the number of completed tasks to the header', () => {
+  setup({
+    todos: [
+      { ...todoFixture, id: 1, title: 'One', completed: true },
+      { ...todoFixture, id: 2, title: 'Two' },
+      { ...todoFixture, id: 3, title: 'Three', completed: true },
+    ],
+  })
+  expect(
+    screen.getByRole('button', { name: 'Clear completed (2)' }),
+  ).toBeVisible()
+})
+
+it('counts no completed tasks while the list is loading', () => {
+  setup({ loaded: false })
+  expect(
+    screen.getByRole('button', { name: 'Clear completed (0)' }),
+  ).toBeDisabled()
+})
+
+it.each([
+  [1, 'Cleared 1 completed task.'],
+  [0, 'Cleared 0 completed tasks.'],
+  [3, 'Cleared 3 completed tasks.'],
+])(
+  'clears completed tasks and notifies when %s were deleted',
+  async (deleted, notice) => {
+    const { user, notify, clearMutateAsync } = setup({
+      todos: [{ ...todoFixture, completed: true }],
+      clearMutateAsync: vi.fn().mockResolvedValue({ deleted }),
+    })
+    await user.click(
+      screen.getByRole('button', { name: 'Clear completed (1)' }),
+    )
+    await waitFor(() => expect(notify).toHaveBeenCalledWith(notice))
+    expect(clearMutateAsync).toHaveBeenCalledTimes(1)
+    expect(notify).toHaveBeenCalledTimes(1)
+  },
+)
+
+it('ignores clearing while another mutation is running', async () => {
+  const { user, notify, clearMutateAsync } = setup({
+    todos: [{ ...todoFixture, completed: true }],
+    busy: true,
+  })
+  const button = screen.getByRole('button', { name: 'Clear completed (1)' })
+  expect(button).toBeDisabled()
+  await user.click(button)
+  expect(clearMutateAsync).not.toHaveBeenCalled()
+  expect(notify).not.toHaveBeenCalled()
+})
+
+it('does not notify when clearing fails', async () => {
+  const { user, notify, clearMutateAsync } = setup({
+    todos: [{ ...todoFixture, completed: true }],
+    clearMutateAsync: vi.fn().mockRejectedValue(new Error('Server error')),
+  })
+  await user.click(screen.getByRole('button', { name: 'Clear completed (1)' }))
+  await waitFor(() => expect(clearMutateAsync).toHaveBeenCalledTimes(1))
+  expect(notify).not.toHaveBeenCalled()
+})
+
+it('shows the clear error in preference to the list error', () => {
+  setup({
+    queryError: new Error('The server is unavailable.'),
+    clearError: new Error('Could not clear completed tasks.'),
+  })
+  expect(screen.getByTestId('alert')).toHaveTextContent(
+    'Could not clear completed tasks.',
+  )
+  expect(screen.getByTestId('alert')).not.toHaveTextContent(
+    'The server is unavailable.',
+  )
+})
+
+it('shows the toggle error in preference to the clear error', () => {
+  setup({
+    mutationError: new Error('Could not save the task.'),
+    clearError: new Error('Could not clear completed tasks.'),
+  })
+  expect(screen.getByTestId('alert')).toHaveTextContent(
+    'Could not save the task.',
+  )
+  expect(screen.getByTestId('alert')).not.toHaveTextContent(
+    'Could not clear completed tasks.',
+  )
 })
