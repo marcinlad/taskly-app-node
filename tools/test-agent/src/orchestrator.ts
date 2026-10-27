@@ -8,8 +8,8 @@ import { packageOf } from './paths.ts';
 import { createSandbox } from './process.ts';
 import { loadSkills } from './skills.ts';
 import type { AgentReport } from './tools.ts';
-import { verifyPackage, type PackageVerification } from './verify.ts';
-import { runVitest, type TestRunResult } from './vitest.ts';
+import { runTypecheck, verifyPackage, type Baseline, type PackageVerification } from './verify.ts';
+import { runVitest } from './vitest.ts';
 
 export interface RunOptions {
   mode: 'pr' | 'coverage';
@@ -51,7 +51,7 @@ export interface RunResult {
   plan: Plan;
   packages: PackageResult[];
   keptFiles: string[];
-  // Verified updates that change existing test lines; reported, never committed automatically.
+  // Verified updates that change existing test lines (other than repairs of failing files); reported, never committed automatically.
   reviewFiles: string[];
   usage: Usage;
   transcript: TranscriptEvent[];
@@ -64,12 +64,13 @@ export async function run(options: RunOptions): Promise<RunResult> {
   const sandbox = createSandbox(repoRoot, options.sandbox.mode, options.sandbox.image);
   const skills = await loadSkills(SKILLS_DIR);
 
-  const baselines = new Map<PackageName, TestRunResult>();
+  const baselines = new Map<PackageName, Baseline>();
   async function measureBaseline(name: PackageName) {
     log(`Measuring baseline coverage of ${name}…`);
-    const baseline = await runVitest(repoRoot, PACKAGES[name], sandbox, { files: [], coverage: true });
-    baselines.set(name, baseline);
-    return baseline;
+    const tests = await runVitest(repoRoot, PACKAGES[name], sandbox, { files: [], coverage: true });
+    const { errors } = await runTypecheck(repoRoot, PACKAGES[name], sandbox);
+    baselines.set(name, { tests, typeErrors: errors });
+    return tests;
   }
 
   let plan: Plan;
@@ -149,7 +150,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
         error: session.error,
       },
       verification,
-      coverageBefore: baselines.get(name)?.coverage,
+      coverageBefore: baselines.get(name)?.tests.coverage,
     });
   }
 

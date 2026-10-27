@@ -12,7 +12,7 @@ For each target, read the diff with `get_diff`, then the full file, and classify
 | Change | Existing tests | Decision |
 |---|---|---|
 | New module with logic (branches, transformations, validation, side effects) | none | **create** |
-| New or changed behavior in a module | exist | **update**: add cases for the new behavior; adjust only the expectations the intended change makes obsolete. Changed or removed existing lines are not committed automatically but left for a reviewer, so say in the reason why each one had to change |
+| New or changed behavior in a module | exist | **update**: add cases for the new behavior; adjust only the expectations the intended change makes obsolete. Changed or removed existing lines are left for a reviewer, so say in the reason why each one had to change. Exceptions, committed automatically: adding names to an existing import, and repairing a test file the pull request broke (it failed before your changes) without changing any assertion; keep such repairs to setup, mocks, imports and props |
 | New behavior in a module | none | **create**, covering the changed behavior first, then the rest of the module if cheap |
 | Rename, formatting, comments, import reordering, type-only change | any | **skip**: behavior did not change |
 | Pure re-export, constant table, wiring with no logic that other tests already exercise | any | **skip** |

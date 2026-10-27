@@ -21,7 +21,8 @@ jobs:
   agent:
     name: Analyze changes and write tests
     # Fork pull requests get no secrets, and their code must not run next to them.
-    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
+    # Runs created by the agent's own commit (actor github-actions[bot], also once approved) only need CI.
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft && github.actor != 'github-actions[bot]'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     # Read-only: this job runs pull request code; writing happens in the publish job.
@@ -173,7 +174,7 @@ jobs:
           git add -A
           git commit --quiet -m 'test: add unit tests from the test agent [test-agent]' \
             -m "Verified by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
-          # A push with GITHUB_TOKEN does not trigger workflows, so this cannot loop.
+          # The runs this push creates wait for a maintainer's approval, and the agent job skips them, so this cannot loop.
           if ! git push --quiet origin HEAD; then
             git fetch --quiet origin "$BRANCH"
             if [ "$(git rev-parse FETCH_HEAD)" != "$HEAD_SHA" ]; then
@@ -206,7 +207,7 @@ jobs:
             echo '---'
             if [ -n "${COMMIT_STATUS:-}" ]; then
               case "$COMMIT_STATUS" in
-                committed) echo "Verified tests were committed to this branch in $COMMIT_SHA." ;;
+                committed) echo "Verified tests were committed to this branch in $COMMIT_SHA. CI runs on that commit once a maintainer approves its workflow runs; the agent skips its own commits." ;;
                 stale) echo 'The branch changed while the agent ran, so nothing was committed; the run for the new head will cover it.' ;;
                 rejected) echo '🚫 The patch was rejected because it touches a file outside the allowed test paths, so nothing was committed. This should never happen and may mean a prompt injection or a bug in the agent; the file is named in the run log.' ;;
                 conflict) echo '❌ The patch does not apply to this branch, so nothing was committed. The patch is in the run artifacts.' ;;

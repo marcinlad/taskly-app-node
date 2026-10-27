@@ -3,8 +3,7 @@ import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { PACKAGES } from '../src/config.ts';
 import type { Sandbox } from '../src/process.ts';
-import { keepsOriginalLines, verifyPackage } from '../src/verify.ts';
-import type { TestRunResult } from '../src/vitest.ts';
+import { changedOriginalLines, keepsOriginalLines, verifyPackage, type Baseline } from '../src/verify.ts';
 import { tempRepo } from './helpers.ts';
 
 interface Behavior {
@@ -228,8 +227,8 @@ it('reverts a file in which no test passed because all are skipped or todo', asy
   ]);
 });
 
-function baselineRun(overrides: Partial<TestRunResult> = {}): TestRunResult {
-  return { ok: true, files: 1, passed: 1, failed: 0, skipped: 0, skippedByFile: {}, failures: [], ...overrides };
+function baselineRun(overrides: Partial<Baseline['tests']> = {}, typeErrors: string[] = []): Baseline {
+  return { tests: { ok: true, files: 1, passed: 1, failed: 0, skipped: 0, skippedByFile: {}, failures: [], ...overrides }, typeErrors };
 }
 
 it('reverts a file that adds skipped tests, but allows the skips a file already had', async () => {
@@ -287,5 +286,42 @@ it('treats an update as additive only when every original line survives in order
   expect(keepsOriginalLines('a\nb\n', 'b\na\n')).toBe(false);
   expect(keepsOriginalLines('a\nb\n', 'a\n')).toBe(false);
   expect(keepsOriginalLines('a  \n', 'a\n')).toBe(true);
+});
+
+it('accepts a named import that only gains names, also when it is reformatted over several lines', () => {
+  const original = "import { expect, it } from 'vitest';\nimport type { Todo } from '../types';\nit('a', f);\n";
+  expect(changedOriginalLines(original, original.replace('{ expect, it }', '{ beforeEach, expect, it }'))).toEqual([]);
+  expect(changedOriginalLines(original, original.replace('{ expect, it }', '{\n  beforeEach,\n  expect,\n  it,\n}'))).toEqual([]);
+  expect(changedOriginalLines(original, original.replace('{ Todo }', '{ Todo, TodoInput }'))).toEqual([]);
+  expect(changedOriginalLines(original, original.replace('{ expect, it }', '{ it }'))).toEqual(["import { expect, it } from 'vitest';"]);
+  expect(changedOriginalLines(original, original.replace('import type { Todo }', 'import { Todo }'))).toEqual(["import type { Todo } from '../types';"]);
+});
+
+describe('updates of test files that failed before the agent ran', () => {
+  const original = "import { it } from 'vitest';\nconst stub = { list: vi.fn() };\nit('lists', () => {\n  expect(\n    render(stub),\n  ).toBeVisible();\n});\n";
+  const repaired = original.replace('{ list: vi.fn() }', '{ list: vi.fn(), clear: vi.fn() }');
+  const reworded = repaired.replace('  ).toBeVisible();', '  ).toBeInTheDocument();');
+
+  async function verify(content: string, baseline: Baseline) {
+    const root = await tempRepo({ 'backend/tests/a.test.ts': content });
+    const result = await verifyPackage(root, PACKAGES.backend, fakeSandbox(root, {}), new Map([['backend/tests/a.test.ts', { original }]]), baseline);
+    const [{ kept, changesExisting, repairsExisting, failedBefore }] = result.files;
+    return { kept, changesExisting, repairsExisting, failedBefore };
+  }
+  const typeError = baselineRun({}, ["backend/tests/a.test.ts(2,14): error TS2741: Property 'clear' is missing."]);
+  const testFailure = baselineRun({ ok: false, failures: [{ file: 'backend/tests/a.test.ts', test: 'lists', message: 'boom' }] });
+
+  it('commits a repair that changes setup but no assertion', async () => {
+    expect(await verify(repaired, typeError)).toEqual({ kept: true, changesExisting: undefined, repairsExisting: true, failedBefore: true });
+    expect(await verify(repaired, testFailure)).toEqual({ kept: true, changesExisting: undefined, repairsExisting: true, failedBefore: true });
+  });
+
+  it('leaves a repair that changes an assertion for review and marks the file as failing without it', async () => {
+    expect(await verify(reworded, typeError)).toEqual({ kept: true, changesExisting: true, repairsExisting: undefined, failedBefore: true });
+  });
+
+  it('leaves a setup change of a file that passed before for review', async () => {
+    expect(await verify(repaired, baselineRun())).toEqual({ kept: true, changesExisting: true, repairsExisting: undefined, failedBefore: undefined });
+  });
 });
 

@@ -19,7 +19,7 @@ npm run agent -- --mode coverage --package backend --max-targets 3
 npm run agent -- --mode coverage --dry-run
 ```
 
-Output goes to `test-agent-output/`: `report.md` (PR comment), `report.json`, `transcript.jsonl` (every model turn and tool call; long inputs such as written test files are shortened), `kept-files.txt` (verified test files to commit) and `review-files.txt` (verified updates that change existing test lines, left for review).
+Output goes to `test-agent-output/`: `report.md` (PR comment), `report.json`, `transcript.jsonl` (every model turn and tool call; long inputs such as written test files are shortened), `kept-files.txt` (verified test files to commit) and `review-files.txt` (verified updates that change existing test lines, left for review; import extensions and assertion-free repairs of files that already failed are committed instead).
 
 | Path | Role |
 |---|---|

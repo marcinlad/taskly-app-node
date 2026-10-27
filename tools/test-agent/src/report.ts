@@ -1,5 +1,6 @@
 import { totals, type Metric } from './coverage.ts';
 import type { PackageResult, RunResult } from './orchestrator.ts';
+import type { FileVerification } from './verify.ts';
 
 export const COMMENT_MARKER = '<!-- taskly-test-agent -->';
 
@@ -32,13 +33,27 @@ export function renderMarkdown(result: RunResult): string {
   const bugs = result.packages.flatMap((pkg) => pkg.agent?.report?.files.flatMap((f) => f.suspectedBugs.map((bug) => `- ${code(f.source)}: ${cell(bug)}`)) ?? []);
   if (bugs.length) out.push('### Suspected bugs', '', 'The agent believes this behavior is wrong and did not encode it in tests. Please check.', '', ...bugs, '');
 
+  const repaired = keptFiles(result).filter((f) => f.repairsExisting);
+  if (repaired.length) {
+    out.push(
+      '### Repaired existing tests',
+      '',
+      'These test files already failed before the agent ran (failing tests or type errors), typically because this pull request changed code they use. The agent changed some of their existing lines to make them pass again, but no assertion, so the repair was committed. Check the changed lines in the commit.',
+      '',
+      ...repaired.map((f) => `- ${code(f.path)}`),
+      '',
+    );
+  }
+
   if (result.reviewFiles.length) {
+    const failing = failingWithoutReview(result);
     out.push(
       '### Changes to existing tests',
       '',
       'These verified updates change or remove existing test lines, which can hide a regression, so they were not committed. Check that each change is intended, then apply `review.patch` from the run artifacts.',
+      ...(failing.length ? ['', `> [!WARNING]\n> ${failing.length} of these files fail on this branch until \`review.patch\` is applied, so the branch's tests fail.`] : []),
       '',
-      ...result.reviewFiles.map((file) => `- ${code(file)}`),
+      ...result.reviewFiles.map((file) => `- ${code(file)}${failing.includes(file) ? ' (fails on this branch until applied)' : ''}`),
       '',
     );
   }
@@ -49,7 +64,8 @@ export function renderMarkdown(result: RunResult): string {
     if (!v) continue;
     const before = pkg.coverageBefore ? totals(Object.values(pkg.coverageBefore)) : undefined;
     const after = v.coverageAfter ? totals(Object.values(v.coverageAfter)) : undefined;
-    const suite = v.suite.ok ? `✅ ${v.suite.passed} passed` : v.suite.error ? '❌ could not run' : `❌ ${v.suite.failed} failed, ${v.suite.passed} passed`;
+    const verified = v.suite.ok ? `✅ ${v.suite.passed} passed` : v.suite.error ? '❌ could not run' : `❌ ${v.suite.failed} failed, ${v.suite.passed} passed`;
+    const suite = v.files.some((f) => f.changesExisting && f.failedBefore) ? `⚠️ fails on this branch; ${verified} with \`review.patch\` applied` : verified;
     const typecheck = v.typecheck.failure
       ? '❌ could not run'
       : v.typecheck.ok ? '✅' : v.typecheck.otherErrors ? `⚠️ ${v.typecheck.otherErrors} error(s) outside agent files` : '✅ (agent errors reverted)';
@@ -63,9 +79,11 @@ export function renderMarkdown(result: RunResult): string {
 function summaryLine(result: RunResult): string {
   const reverted = result.packages.reduce((n, p) => n + (p.verification?.files.filter((f) => !f.kept).length ?? 0), 0);
   const errors = result.packages.filter((p) => p.agent?.error).map((p) => `> ${p.package}: ${p.agent!.error}`);
-  const suitesPass = result.packages.every((p) => p.verification?.suite.ok !== false);
+  const suitesPass = result.packages.every((p) => p.verification?.suite.ok !== false) && failingWithoutReview(result).length === 0;
+  const repaired = keptFiles(result).filter((f) => f.repairsExisting).length;
   const parts = [
     `**${result.keptFiles.length}** test file(s) verified`,
+    repaired ? `**${repaired}** of them repaired` : '',
     reverted ? `**${reverted}** reverted` : '',
     result.reviewFiles.length ? `**${result.reviewFiles.length}** left for review` : '',
     suitesPass ? 'all test suites pass' : 'a test suite fails',
@@ -78,7 +96,16 @@ function verificationMark(pkg: PackageResult, file: string): string {
   const v = pkg.verification?.files.find((f) => f.path === file);
   if (!v) return '(not written)';
   if (!v.kept) return '❌ reverted';
-  return v.changesExisting ? `⚠️ ${v.passedRuns}×, changes existing tests` : `✅ ${v.passedRuns}×`;
+  if (v.changesExisting) return `⚠️ ${v.passedRuns}×, changes existing tests`;
+  return v.repairsExisting ? `✅ ${v.passedRuns}×, repairs existing tests` : `✅ ${v.passedRuns}×`;
+}
+
+function keptFiles(result: RunResult): FileVerification[] {
+  return result.packages.flatMap((pkg) => pkg.verification?.files.filter((f) => f.kept && !f.changesExisting) ?? []);
+}
+
+function failingWithoutReview(result: RunResult): string[] {
+  return result.packages.flatMap((pkg) => pkg.verification?.files.filter((f) => f.kept && f.changesExisting && f.failedBefore).map((f) => f.path) ?? []);
 }
 
 function revertedSection(result: RunResult): string[] {

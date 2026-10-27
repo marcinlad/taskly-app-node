@@ -15,6 +15,15 @@ export interface FileVerification {
   passedRuns?: number;
   // A kept update that changes or removes lines of the original test file: verified, but left for a human to apply.
   changesExisting?: boolean;
+  // A kept update that changes lines of a test file that failed before the agent's changes, but no assertion: committed.
+  repairsExisting?: boolean;
+  // The original file failed (tests or type errors) before the agent's changes, so it still fails wherever this update is not applied.
+  failedBefore?: boolean;
+}
+
+export interface Baseline {
+  tests: TestRunResult;
+  typeErrors: string[];
 }
 
 export interface PackageVerification {
@@ -26,13 +35,13 @@ export interface PackageVerification {
 
 // The agent writes test files only and Vitest isolates them, so suite failures elsewhere are reported, not reverted.
 // A step that could not run proves nothing, so it reverts every file still kept, unless it failed the same way before
-// the agent's changes (`baseline`, the package suite run before the session).
+// the agent's changes (`baseline`, the package suite and typecheck run before the session).
 export async function verifyPackage(
   repoRoot: string,
   pkg: PackageConfig,
   sandbox: Sandbox,
   writes: Map<string, WriteRecord>,
-  baseline?: TestRunResult,
+  baseline?: Baseline,
   log: (line: string) => void = () => {},
 ): Promise<PackageVerification> {
   const files = [...writes.keys()];
@@ -58,7 +67,7 @@ export async function verifyPackage(
     for (let run = 0; run < VERIFY_REPEATS && !failure; run++) {
       const result = await runVitest(repoRoot, pkg, sandbox, { files: [file] });
       const skipped = result.skippedByFile[file] ?? 0;
-      const skippedBefore = baseline?.skippedByFile[file] ?? 0;
+      const skippedBefore = baseline?.tests.skippedByFile[file] ?? 0;
       if (!result.ok) failure = firstFailure(result, run);
       else if (result.passed === 0) failure = 'no test passed: the file has only skipped or todo tests';
       else if (skipped > skippedBefore) failure = `adds skipped or todo tests: ${skipped} in the file, ${skippedBefore} before`;
@@ -85,14 +94,23 @@ export async function verifyPackage(
     for (const file of failingInSuite) await reject(file, 'fails when the whole package suite runs');
     suite = await runVitest(repoRoot, pkg, sandbox, { files: [], coverage: true });
   }
-  if (suite.error && !baseline?.error) {
+  if (suite.error && !baseline?.tests.error) {
     for (const file of files.filter(isKept)) await reject(file, `the full package suite could not run: ${suite.error}`);
   }
 
+  // Changing existing lines could make a test agree with a bug, so such an update is left for review, unless it repairs a
+  // file that already failed before the agent's changes (typically broken by the pull request) without touching an assertion.
   for (const file of files.filter(isKept)) {
     const { original } = writes.get(file)!;
-    if (original !== null && !keepsOriginalLines(original, await readFile(path.join(repoRoot, file), 'utf8'))) {
-      results.set(file, { ...results.get(file)!, changesExisting: true });
+    if (original === null) continue;
+    const changed = changedOriginalLines(original, await readFile(path.join(repoRoot, file), 'utf8'));
+    if (changed.length === 0) continue;
+    const failedBefore = failedBeforeAgent(file, baseline);
+    if (failedBefore && !changed.some((line) => ASSERTION.test(line))) {
+      results.set(file, { ...results.get(file)!, repairsExisting: true, failedBefore });
+      log(`  verify ${file}: repairs a test file that failed before, no assertion changed`);
+    } else {
+      results.set(file, { ...results.get(file)!, changesExisting: true, ...(failedBefore && { failedBefore }) });
       log(`  verify ${file}: changes existing tests, left for review`);
     }
   }
@@ -117,17 +135,54 @@ export async function verifyPackage(
   };
 }
 
-// True when every non-blank line of the original appears, in order, in the update: tests were added, none rewritten.
+// True when every non-blank line of the original survives in the update: tests were added, none rewritten.
 export function keepsOriginalLines(original: string, updated: string): boolean {
+  return changedOriginalLines(original, updated).length === 0;
+}
+
+// The non-blank lines of the original that do not appear, in order, in the update. A named import whose names all
+// still appear in an import from the same module (typically one that gained a name) is not a change.
+export function changedOriginalLines(original: string, updated: string): string[] {
   const next = updated.split('\n').map((line) => line.trimEnd());
+  const imports = namedImports(updated);
+  const changed: string[] = [];
   let i = 0;
   for (const line of original.split('\n').map((l) => l.trimEnd())) {
     if (line === '') continue;
-    while (i < next.length && next[i] !== line) i++;
-    if (i === next.length) return false;
-    i++;
+    const found = next.indexOf(line, i);
+    if (found !== -1) i = found + 1;
+    else if (!keepsImport(line, imports)) changed.push(line);
   }
-  return true;
+  return changed;
+}
+
+// An expect() or assert call, or a matcher on a line of its own (prettier splits long expect chains).
+const ASSERTION = /\b(?:expect|assert)\b|\.(?:not\.)?to[A-Z]\w*\(|\.(?:resolves|rejects)\b/;
+const NAMED_IMPORT = /import\s+(type\s+)?\{([^}]*)\}\s*from\s*(['"][^'"]+['"])/g;
+
+function namedImports(source: string): Map<string, Set<string>> {
+  const imports = new Map<string, Set<string>>();
+  for (const [, type, names, module] of source.matchAll(NAMED_IMPORT)) {
+    const key = `${type ? 'type ' : ''}${module}`;
+    imports.set(key, new Set([...(imports.get(key) ?? []), ...importNames(names)]));
+  }
+  return imports;
+}
+
+function keepsImport(line: string, imports: Map<string, Set<string>>): boolean {
+  const [match] = [...line.trim().matchAll(NAMED_IMPORT)];
+  if (!match || match.index !== 0) return false;
+  const kept = imports.get(`${match[1] ? 'type ' : ''}${match[3]}`);
+  return kept !== undefined && importNames(match[2]).every((name) => kept.has(name));
+}
+
+function importNames(list: string): string[] {
+  return list.split(',').map((name) => name.trim().replace(/\s+/g, ' ')).filter(Boolean);
+}
+
+function failedBeforeAgent(file: string, baseline?: Baseline): boolean {
+  if (!baseline) return false;
+  return baseline.tests.failures.some((f) => f.file === file) || baseline.typeErrors.some((line) => line.startsWith(`${file}(`));
 }
 
 function firstFailure(result: TestRunResult, run: number): string {
