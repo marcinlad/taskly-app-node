@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import type { SandboxMode } from './config.ts';
@@ -51,12 +52,12 @@ export function runCommand(command: string, args: string[], options: CommandOpti
 }
 
 export interface Sandbox {
-  run(packageDir: string, args: string[], extraEnv?: Record<string, string>): Promise<CommandResult>;
+  // writableDir: a directory inside the package, relative to it, that this one run may write to.
+  run(packageDir: string, args: string[], writableDir?: string): Promise<CommandResult>;
 }
 
 const COMMAND_TIMEOUT_MS = 5 * 60_000;
-// Writable in the container: our scratch output, and Vite's bundled config and cache (tmpfs, gone afterwards).
-const SCRATCH_DIR = 'node_modules/.test-agent';
+// Vite's bundled config and cache, writable as tmpfs and gone with the container.
 const TMPFS_DIRS = ['node_modules/.vite-temp', 'node_modules/.vite'];
 
 // docker: a throwaway container without network that mounts only the package directory, read-only, so pull request
@@ -64,34 +65,38 @@ const TMPFS_DIRS = ['node_modules/.vite-temp', 'node_modules/.vite'];
 // or the source the tests are verified against. local mode has none of these protections; it is for development.
 export function createSandbox(repoRoot: string, mode: SandboxMode, image: string): Sandbox {
   return {
-    async run(packageDir, [bin, ...args], extraEnv = {}) {
+    async run(packageDir, [bin, ...args], writableDir) {
       const hostDir = path.join(repoRoot, packageDir);
       if (mode === 'local') {
-        return runCommand(path.join(hostDir, 'node_modules', '.bin', bin), args, { cwd: hostDir, timeoutMs: COMMAND_TIMEOUT_MS, extraEnv });
+        return runCommand(path.join(hostDir, 'node_modules', '.bin', bin), args, { cwd: hostDir, timeoutMs: COMMAND_TIMEOUT_MS });
       }
       // Mount points inside a read-only mount must already exist.
-      for (const dir of [SCRATCH_DIR, ...TMPFS_DIRS]) await mkdir(path.join(hostDir, dir), { recursive: true });
+      for (const dir of TMPFS_DIRS) await mkdir(path.join(hostDir, dir), { recursive: true });
       const boxDir = `/repo/${packageDir}`;
       const ids = typeof process.getuid === 'function' ? { uid: process.getuid(), gid: process.getgid?.() ?? 0 } : undefined;
-      const envArgs = Object.entries(cleanEnv(extraEnv))
+      const envArgs = Object.entries(cleanEnv())
         .filter(([name]) => !['PATH', 'HOME', 'TMPDIR'].includes(name))
         .flatMap(([name, value]) => ['--env', `${name}=${value}`]);
-      return runCommand(
+      const name = `test-agent-${randomUUID()}`;
+      const result = await runCommand(
         'docker',
         [
-          'run', '--rm', '--network', 'none',
+          'run', '--rm', '--name', name, '--network', 'none',
           '--memory', '2g', '--cpus', '2', '--pids-limit', '512',
           '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
           ...(ids ? ['--user', `${ids.uid}:${ids.gid}`] : []), '--env', 'HOME=/tmp',
           ...envArgs,
           '--volume', `${hostDir}:${boxDir}:ro`,
-          '--volume', `${path.join(hostDir, SCRATCH_DIR)}:${boxDir}/${SCRATCH_DIR}`,
+          ...(writableDir ? ['--volume', `${path.join(hostDir, writableDir)}:${boxDir}/${writableDir}`] : []),
           ...TMPFS_DIRS.flatMap((dir) => ['--tmpfs', `${boxDir}/${dir}${ids ? `:uid=${ids.uid},gid=${ids.gid}` : ''}`]),
           '--workdir', boxDir, '--entrypoint', '',
           image, `node_modules/.bin/${bin}`, ...args,
         ],
         { cwd: repoRoot, timeoutMs: COMMAND_TIMEOUT_MS },
       );
+      // Killing the docker client leaves the container running; remove it before anything else runs.
+      if (result.timedOut) await runCommand('docker', ['rm', '--force', name], { cwd: repoRoot, timeoutMs: 60_000 });
+      return result;
     },
   };
 }

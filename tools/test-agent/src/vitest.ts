@@ -69,7 +69,7 @@ export async function runVitest(
         `--coverage.reportsDirectory=${scratchRel}/coverage`,
       );
     }
-    const result = await sandbox.run(pkg.dir, args);
+    const result = await sandbox.run(pkg.dir, args, scratchRel);
     const report = await readJson<VitestJsonReport>(path.join(scratch, 'report.json'));
     if (!report) return crashed(result);
     const coverageReport = options.coverage
