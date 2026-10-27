@@ -1,0 +1,230 @@
+name: Unit test agent
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+
+permissions: {}
+
+concurrency:
+  group: test-agent-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  SANDBOX_IMAGE: node:24-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205
+  ARTIFACT: test-agent-${{ github.event.pull_request.number }}-${{ github.run_attempt }}
+
+jobs:
+  agent:
+    name: Analyze changes and write tests
+    # Fork pull requests get no secrets, and their code must not run next to them.
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    # Read-only: this job runs pull request code; writing happens in the publish job.
+    permissions:
+      contents: read
+    outputs:
+      kept: ${{ steps.patch.outputs.kept }}
+    steps:
+      - name: Check out the pull request
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: pr
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: pr/tools/test-agent/package-lock.json
+
+      - name: Install the agent
+        working-directory: pr/tools/test-agent
+        run: npm ci --no-audit --no-fund
+
+      # Only the package directory is mounted: install scripts get no secrets and can't touch .git or the agent.
+      - name: Install pull request dependencies in the sandbox
+        working-directory: pr
+        run: |
+          for pkg in backend frontend; do
+            docker run --rm --user "$(id -u):$(id -g)" --env HOME=/tmp --env npm_config_cache=/tmp/.npm \
+              --volume "$PWD/$pkg:/repo/$pkg" --workdir "/repo/$pkg" "$SANDBOX_IMAGE" npm ci --no-audit --no-fund
+          done
+
+      # Installing needs write access to the package; tests later run read-only against exactly this tree.
+      - name: Check that installing changed no tracked files
+        working-directory: pr
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --short
+            echo "::error::Installing dependencies changed files in the checkout."
+            exit 1
+          fi
+
+      - name: Run the agent
+        working-directory: pr/tools/test-agent
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TEST_AGENT_MODEL: ${{ vars.TEST_AGENT_MODEL || 'claude-opus-5-5' }}
+          TEST_AGENT_EFFORT: ${{ vars.TEST_AGENT_EFFORT || 'high' }}
+          TEST_AGENT_SANDBOX: docker
+          TEST_AGENT_SANDBOX_IMAGE: ${{ env.SANDBOX_IMAGE }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error::Set the ANTHROPIC_API_KEY repository secret."
+            exit 1
+          fi
+          npx tsx src/cli.ts --mode pr --base "$BASE_SHA" --head "$HEAD_SHA" --out "$RUNNER_TEMP/test-agent"
+
+      - name: Package the verified tests as a patch
+        id: patch
+        working-directory: pr
+        run: |
+          out="$RUNNER_TEMP/test-agent"
+          if [ -s "$out/kept-files.txt" ]; then
+            mapfile -t files < "$out/kept-files.txt"
+            git add --intent-to-add -- "${files[@]}"
+            git diff --binary -- "${files[@]}" > "$out/tests.patch"
+            # A kept file may match its original content; count only files that actually changed.
+            echo "kept=$(git diff --name-only -- "${files[@]}" | wc -l | tr -d ' ')" >> "$GITHUB_OUTPUT"
+          else
+            echo "kept=0" >> "$GITHUB_OUTPUT"
+          fi
+          # Verified changes to existing tests are never committed; they ship as a patch for review.
+          if [ -s "$out/review-files.txt" ]; then
+            mapfile -t review < "$out/review-files.txt"
+            git add --intent-to-add -- "${review[@]}"
+            git diff --binary -- "${review[@]}" > "$out/review.patch"
+          fi
+
+      - name: Write the job summary
+        if: always()
+        run: cat "$RUNNER_TEMP/test-agent/report.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+
+      - name: Upload the report, transcript and patch
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ env.ARTIFACT }}
+          path: ${{ runner.temp }}/test-agent/
+          retention-days: 14
+          if-no-files-found: ignore
+
+  publish:
+    name: Commit tests and report on the pull request
+    needs: agent
+    if: always() && (needs.agent.result == 'success' || needs.agent.result == 'failure')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Download the agent output
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true
+        with:
+          name: ${{ env.ARTIFACT }}
+          path: out
+
+      # No code from the pull request runs in this job; it only applies a checked patch.
+      - name: Check out the pull request branch
+        if: needs.agent.result == 'success' && needs.agent.outputs.kept != '0'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          path: pr
+
+      - name: Validate and commit the patch
+        id: commit
+        if: needs.agent.result == 'success' && needs.agent.outputs.kept != '0'
+        working-directory: pr
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          patch="$GITHUB_WORKSPACE/out/tests.patch"
+          fail() { echo "status=$1" >> "$GITHUB_OUTPUT"; echo "::error::$2"; exit 1; }
+          # Tests written for an older head would land on code they were not verified against.
+          if [ "$(git rev-parse HEAD)" != "$HEAD_SHA" ]; then
+            echo "status=stale" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Defense in depth: whatever the agent run claims, the patch may only touch test files.
+          allowed='^(backend/tests/[A-Za-z0-9_./-]+\.test\.ts|frontend/src/[A-Za-z0-9_./-]+\.test\.tsx?)$'
+          git apply --numstat "$patch" | cut -f3 | while read -r file; do
+            if [[ ! "$file" =~ $allowed || "$file" == *..* ]]; then
+              fail rejected "The patch touches a file that is not a test file: $file"
+            fi
+          done
+          git apply --check "$patch" || fail conflict 'The patch does not apply to the branch.'
+          git apply "$patch"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit --quiet -m 'test: add unit tests from the test agent [test-agent]' \
+            -m "Verified by $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          # A push with GITHUB_TOKEN does not trigger workflows, so this cannot loop.
+          if ! git push --quiet origin HEAD; then
+            git fetch --quiet origin "$BRANCH"
+            if [ "$(git rev-parse FETCH_HEAD)" != "$HEAD_SHA" ]; then
+              echo "status=stale" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            fail push-failed 'Pushing to the pull request branch failed.'
+          fi
+          echo "status=committed" >> "$GITHUB_OUTPUT"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Comment on the pull request
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          AGENT_RESULT: ${{ needs.agent.result }}
+          KEPT: ${{ needs.agent.outputs.kept }}
+          COMMIT_STATUS: ${{ steps.commit.outputs.status }}
+          COMMIT_OUTCOME: ${{ steps.commit.outcome }}
+          COMMIT_SHA: ${{ steps.commit.outputs.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          marker='<!-- taskly-test-agent -->'
+          body="$RUNNER_TEMP/comment.md"
+          if [ -f out/report.md ]; then cp out/report.md "$body"; else printf '%s\n## Unit test agent\n' "$marker" > "$body"; fi
+          {
+            echo
+            echo '---'
+            if [ -n "${COMMIT_STATUS:-}" ]; then
+              case "$COMMIT_STATUS" in
+                committed) echo "Verified tests were committed to this branch in $COMMIT_SHA." ;;
+                stale) echo 'The branch changed while the agent ran, so nothing was committed; the run for the new head will cover it.' ;;
+                rejected) echo '🚫 The patch was rejected because it touches a file outside the allowed test paths, so nothing was committed. This should never happen and may mean a prompt injection or a bug in the agent; the file is named in the run log.' ;;
+                conflict) echo '❌ The patch does not apply to this branch, so nothing was committed. The patch is in the run artifacts.' ;;
+                push-failed) echo "❌ Pushing to this branch failed (for example, branch protection), so nothing was committed. Apply \`tests.patch\` from the run artifacts with \`git apply\`." ;;
+              esac
+            elif [ "${COMMIT_OUTCOME:-}" = failure ]; then
+              echo '❌ Committing the tests failed, so nothing was committed. See the run log.'
+            elif [ "$AGENT_RESULT" != success ]; then
+              echo '⚠️ The agent run failed; nothing was committed. See the run log.'
+            elif [ "${KEPT:-0}" = 0 ]; then
+              echo 'No test files to commit.'
+            fi
+            echo "[Run log, transcript and patch]($RUN_URL)"
+          } >> "$body"
+          id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | startswith(\"$marker\"))) | .id" | tail -n 1)
+          if [ -n "$id" ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$id" -F body=@"$body" > /dev/null
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F body=@"$body" > /dev/null
+          fi
