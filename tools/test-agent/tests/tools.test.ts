@@ -179,6 +179,16 @@ describe('submit_report', () => {
     await expect(call('submit_report', { summary: '', files: [{ ...entry, testFiles: [] }] })).rejects.toThrow('needs testFiles');
     expect(state.report).toBeNull();
   });
+
+  it('rejects text longer than the comment shows, so the agent shortens it itself', async () => {
+    const { call, state } = await setup();
+    await call('write_test_file', { path: 'backend/tests/factory.test.ts', content: '' });
+    const long = 'x'.repeat(401);
+    await expect(call('submit_report', { summary: long, files: [{ ...entry, reason: long, suspectedBugs: ['ok', long] }] }))
+      .rejects.toThrow(/summary has 401 characters[\s\S]*factory\.ts: reason has 401[\s\S]*suspected bug 2 has 401/);
+    expect(await call('submit_report', { summary: 'x'.repeat(400), files: [entry] })).toContain('Report accepted');
+    expect(state.report?.summary).toHaveLength(400);
+  });
 });
 
 it('stops pointing to failure-triage once it is loaded', async () => {

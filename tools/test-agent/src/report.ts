@@ -1,5 +1,6 @@
 import { totals, type Metric } from './coverage.ts';
 import type { PackageResult, RunResult } from './orchestrator.ts';
+import { REPORT_TEXT_MAX } from './tools.ts';
 import type { FileVerification } from './verify.ts';
 
 export const COMMENT_MARKER = '<!-- taskly-test-agent -->';
@@ -168,5 +169,11 @@ export function sanitize(text: string): string {
 }
 
 function cell(text: string): string {
-  return sanitize(text).replace(/\|/g, '\\|').replace(/\r?\n/g, ' ').slice(0, 400);
+  const flat = sanitize(text).replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+  if (text.length <= REPORT_TEXT_MAX) return flat;
+  const head = flat.slice(0, REPORT_TEXT_MAX);
+  const space = head.lastIndexOf(' ');
+  let cut = (space > 0 ? head.slice(0, space) : head).replace(/\\$/, '').trimEnd();
+  if ((cut.match(/`/g) ?? []).length % 2) cut += '`';
+  return `${cut} …`;
 }
