@@ -137,6 +137,28 @@ describe('run_tests', () => {
     for (let i = 1; i < MAX_TEST_RUNS; i++) await call('run_tests', { files: ['backend/tests/router.test.ts'] });
     await expect(call('run_tests', { files: ['backend/tests/router.test.ts'] })).rejects.toThrow(`Test run limit (${MAX_TEST_RUNS}) reached`);
   });
+
+  it('reports type errors in the files it ran and only in those', async () => {
+    const { call, sandbox, state } = await setup();
+    const tsc = (stdout: string, exitCode = stdout ? 2 : 0) => ({ exitCode, stdout, stderr: '', timedOut: false, durationMs: 1 });
+    const typecheck = vi.fn().mockResolvedValue(tsc(
+      "tests/router.test.ts(3,7): error TS7022: 'todos' implicitly has type 'any'.\ntests/other.test.ts(1,1): error TS2304: Cannot find name 'x'.\n",
+    ));
+    vi.mocked(sandbox.run).mockImplementation(async (_dir, [bin]) =>
+      bin === 'tsc' ? typecheck() : { exitCode: 1, stdout: '', stderr: 'boom', timedOut: false, durationMs: 1 });
+
+    const output = await call('run_tests', { files: ['backend/tests/router.test.ts'] });
+    expect(output).toContain('TYPECHECK: 1 type error(s) in these files');
+    expect(output).toContain("backend/tests/router.test.ts(3,7): error TS7022: 'todos' implicitly has type 'any'.");
+    expect(output).not.toContain('other.test.ts');
+    expect(output.endsWith(TRIAGE_HINT)).toBe(true);
+
+    typecheck.mockResolvedValue(tsc(''));
+    expect(await call('run_tests', { files: ['backend/tests/router.test.ts'] })).toContain('TYPECHECK: no type errors in these files.');
+    typecheck.mockResolvedValue(tsc('', 1));
+    expect(await call('run_tests', { files: ['backend/tests/router.test.ts'] })).toContain('TYPECHECK could not run: tsc exited with code 1');
+    expect(state.testRuns).toBe(3);
+  });
 });
 
 describe('submit_report', () => {
