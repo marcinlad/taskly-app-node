@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { useNotice } from '../../hooks/useNotice'
 import { todoFixture } from '../../test/todoFixture'
+import { useClearCompletedMutation } from './hooks/useClearCompletedMutation'
 import { useTodoFilters } from './hooks/useTodoFilters'
 import { useTodosBusy } from './hooks/useTodosBusy'
 import { useTodosQuery } from './hooks/useTodosQuery'
@@ -21,17 +22,31 @@ vi.mock('./hooks/useTodosQuery', () => ({ useTodosQuery: vi.fn() }))
 vi.mock('./hooks/useUpdateTodoMutation', () => ({
   useUpdateTodoMutation: vi.fn(),
 }))
+vi.mock('./hooks/useClearCompletedMutation', () => ({
+  useClearCompletedMutation: vi.fn(),
+}))
+// The clear button is never disabled by the stub so the page's own busy
+// guard can be exercised.
 vi.mock('./components/TodosHeader', () => ({
   TodosHeader: ({
     disabled,
+    completedCount,
     onCreate,
+    onClearCompleted,
   }: {
     disabled: boolean
+    completedCount: number
     onCreate: () => void
+    onClearCompleted: () => void
   }) => (
-    <button disabled={disabled} onClick={onCreate}>
-      New task
-    </button>
+    <div>
+      <button disabled={disabled} onClick={onCreate}>
+        New task
+      </button>
+      <button onClick={onClearCompleted}>
+        Clear completed ({completedCount})
+      </button>
+    </div>
   ),
 }))
 vi.mock('./components/TodoFilters', () => ({ TodoFilters: () => null }))
@@ -110,6 +125,8 @@ function setup({
   queryError = null as Error | null,
   mutationError = null as Error | null,
   mutateAsync = vi.fn(),
+  clearError = null as Error | null,
+  clearMutateAsync = vi.fn(),
 } = {}) {
   const notify = vi.fn()
   vi.mocked(useTodosQuery).mockReturnValue({
@@ -125,6 +142,11 @@ function setup({
     reset: vi.fn(),
     mutateAsync,
   } as unknown as ReturnType<typeof useUpdateTodoMutation>)
+  vi.mocked(useClearCompletedMutation).mockReturnValue({
+    error: clearError,
+    reset: vi.fn(),
+    mutateAsync: clearMutateAsync,
+  } as unknown as ReturnType<typeof useClearCompletedMutation>)
   vi.mocked(useTodosBusy).mockReturnValue(busy)
   vi.mocked(useNotice).mockReturnValue({ message: '', notify })
   vi.mocked(useTodoFilters).mockReturnValue({
@@ -137,7 +159,15 @@ function setup({
     setSort: vi.fn(),
   })
   render(<TodosPage />)
-  return { user: userEvent.setup(), notify, mutateAsync }
+  return { user: userEvent.setup(), notify, mutateAsync, clearMutateAsync }
+}
+
+const done: Todo = { ...todoFixture, id: 8, title: 'Done', completed: true }
+const alsoDone: Todo = {
+  ...todoFixture,
+  id: 9,
+  title: 'Also done',
+  completed: true,
 }
 
 it('treats a list that has not loaded yet as having no tasks', () => {
@@ -269,4 +299,84 @@ it('closes the delete confirmation and notifies after deleting', async () => {
   await user.click(screen.getByRole('button', { name: 'Confirm deletion' }))
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   expect(notify).toHaveBeenCalledWith('Task deleted.')
+})
+
+it('passes the number of completed tasks to the header', () => {
+  setup({ todos: [done, todoFixture, alsoDone] })
+  expect(
+    screen.getByRole('button', { name: 'Clear completed (2)' }),
+  ).toBeVisible()
+})
+
+it('passes a zero completed count when the list has not loaded', () => {
+  setup({ loaded: false })
+  expect(
+    screen.getByRole('button', { name: 'Clear completed (0)' }),
+  ).toBeVisible()
+})
+
+it.each([
+  [2, 'Cleared 2 completed tasks.'],
+  [1, 'Cleared 1 completed task.'],
+  [0, 'Cleared 0 completed tasks.'],
+])(
+  'clears completed tasks and notifies when %s were deleted',
+  async (deleted, notice) => {
+    const { user, notify, clearMutateAsync } = setup({
+      todos: [done, alsoDone],
+      clearMutateAsync: vi.fn().mockResolvedValue({ deleted }),
+    })
+    await user.click(
+      screen.getByRole('button', { name: 'Clear completed (2)' }),
+    )
+    await waitFor(() => expect(notify).toHaveBeenCalledWith(notice))
+    expect(notify).toHaveBeenCalledTimes(1)
+    expect(clearMutateAsync).toHaveBeenCalledTimes(1)
+  },
+)
+
+it('ignores clearing completed tasks while another mutation is running', async () => {
+  const { user, notify, clearMutateAsync } = setup({
+    todos: [done],
+    busy: true,
+  })
+  await user.click(screen.getByRole('button', { name: 'Clear completed (1)' }))
+  expect(clearMutateAsync).not.toHaveBeenCalled()
+  expect(notify).not.toHaveBeenCalled()
+})
+
+it('does not notify when clearing completed tasks fails', async () => {
+  const { user, notify, clearMutateAsync } = setup({
+    todos: [done],
+    clearMutateAsync: vi.fn().mockRejectedValue(new Error('Server error')),
+  })
+  await user.click(screen.getByRole('button', { name: 'Clear completed (1)' }))
+  await waitFor(() => expect(clearMutateAsync).toHaveBeenCalledTimes(1))
+  expect(notify).not.toHaveBeenCalled()
+})
+
+it('shows the clear completed error in preference to the list error', () => {
+  setup({
+    queryError: new Error('The server is unavailable.'),
+    clearError: new Error('Could not clear completed tasks.'),
+  })
+  expect(screen.getByTestId('alert')).toHaveTextContent(
+    'Could not clear completed tasks.',
+  )
+  expect(screen.getByTestId('alert')).not.toHaveTextContent(
+    'The server is unavailable.',
+  )
+})
+
+it('shows the toggle error in preference to the clear completed error', () => {
+  setup({
+    mutationError: new Error('Could not save the task.'),
+    clearError: new Error('Could not clear completed tasks.'),
+  })
+  expect(screen.getByTestId('alert')).toHaveTextContent(
+    'Could not save the task.',
+  )
+  expect(screen.getByTestId('alert')).not.toHaveTextContent(
+    'Could not clear completed tasks.',
+  )
 })
