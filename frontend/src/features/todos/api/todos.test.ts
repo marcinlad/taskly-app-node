@@ -27,3 +27,39 @@ it('sends only writable task fields on creation', async () => {
     }),
   })
 })
+
+it('patches a task by id with only the writable fields', async () => {
+  const saved = { ...todoFixture, title: 'Renamed demo' }
+  vi.mocked(request).mockResolvedValue(saved)
+  await expect(
+    todosApi.update(7, { ...todoFixture, title: 'Renamed demo' }),
+  ).resolves.toEqual(saved)
+  expect(request).toHaveBeenCalledWith('/todos/7', {
+    method: 'PATCH',
+    body: '{"title":"Renamed demo","description":"","priority":"medium","due_date":null,"completed":false}',
+  })
+})
+
+it('sends only the provided fields of a partial update', async () => {
+  vi.mocked(request).mockResolvedValue({ ...todoFixture, completed: true })
+  await todosApi.update(12, { completed: true })
+  expect(request).toHaveBeenCalledWith('/todos/12', {
+    method: 'PATCH',
+    body: '{"completed":true}',
+  })
+})
+
+it('keeps a null due date in a partial update so it can be cleared', async () => {
+  vi.mocked(request).mockResolvedValue(todoFixture)
+  await todosApi.update(7, { due_date: null })
+  expect(request).toHaveBeenCalledWith('/todos/7', {
+    method: 'PATCH',
+    body: '{"due_date":null}',
+  })
+})
+
+it('deletes a task by id', async () => {
+  vi.mocked(request).mockResolvedValue(undefined)
+  await expect(todosApi.remove(7)).resolves.toBeUndefined()
+  expect(request).toHaveBeenCalledWith('/todos/7', { method: 'DELETE' })
+})
